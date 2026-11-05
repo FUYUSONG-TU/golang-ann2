@@ -15,13 +15,16 @@ func main() {
 		panic(fmt.Sprintf("mysql init failed with %+v", err))
 	}
 
-	http.HandleFunc("/", service.IndexHandler)
+	// 接口路由
 	http.HandleFunc("/api/count", service.CounterHandler)
-
-	// 后台管理页与接口
-	http.HandleFunc("/admin", service.AdminPageHandler)
-	http.HandleFunc("/admin/", service.AdminPageHandler)
 	http.HandleFunc("/api/admin/", service.AdminAPIHandler)
+
+	// 前端（Vue 构建产物已嵌入二进制），未命中的路径交由 vue-router 处理
+	spa, err := newSPAHandler()
+	if err != nil {
+		log.Fatalf("加载前端资源失败: %v", err)
+	}
+	http.Handle("/", spa)
 
 	// 容器内默认监听 80 端口；本地调试可用 PORT 覆盖
 	port := os.Getenv("PORT")
@@ -29,6 +32,6 @@ func main() {
 		port = "80"
 	}
 
-	log.Printf("server listening on :%s, admin console at /admin", port)
+	log.Printf("机匠学徒后台已启动，监听 :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

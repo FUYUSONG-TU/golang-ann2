@@ -114,15 +114,75 @@ curl -X POST -H 'content-type: application/json' -d '{"action": "inc"}' https://
 
 
 
-## 后台管理（二次开发新增）
+## 机匠学徒 · 后台管理系统
 
-访问 `http://<服务域名>/admin` 打开管理页面，可以查看计数、自增、设为指定值、清零、新建与删除记录，并显示数据库延迟与服务运行时长。
+由云托管 Golang 模板二次开发而来。前端为完全重写的 Vue 3 单页应用，后端保留模板数据层并扩展管理接口。
+
+### 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 前端 | Vue 3 + Vite 5 + Element Plus + vue-router（history 模式） |
+| 后端 | Go net/http + GORM |
+| 数据库 | MySQL，表 `Counters` |
+| 部署 | 前端产物经 `go:embed` 嵌入 Go 二进制，单容器运行 |
+
+### 目录结构
+
+```
+.
+├── main.go               # 入口：路由注册，默认监听 80
+├── static.go             # 前端资源嵌入 + SPA history 回退
+├── service/              # 接口实现（admin_service.go / counter_service.go）
+├── db/                   # GORM 初始化与 DAO
+├── web/                  # Vue 前端工程
+│   ├── src/views/        # 登录 / 仪表盘 / 计数管理 / 系统信息
+│   ├── src/layouts/      # 侧边栏 + 顶栏布局
+│   └── dist/             # 构建产物，不提交，构建时生成
+└── Dockerfile            # 三段构建：node → go → alpine
+```
+
+### 页面
+
+| 路径 | 页面 |
+| --- | --- |
+| `/login` | 管理员登录（服务端未配置密钥时直接放行） |
+| `/` | 仪表盘：当前计数、记录数、数据库延迟、运行时长 |
+| `/counters` | 计数管理：新建、自增、改值、删除、按 ID 或数值筛选 |
+| `/about` | 技术栈、接口清单与部署说明 |
+
+### 本地开发
+
+前端（热更新，`/api` 自动代理到后端 8080）：
+
+```bash
+cd web
+npm install
+npm run dev      # http://localhost:5173
+```
+
+后端：
+
+```bash
+export MYSQL_USERNAME=xxx MYSQL_PASSWORD=xxx
+export MYSQL_ADDRESS=10.0.0.0:3306 MYSQL_DATABASE=golang_demo
+PORT=8080 go run .
+```
+
+构建单个二进制（前端产物需先存在，否则 `go:embed` 报错）：
+
+```bash
+cd web && npm run build && cd ..
+go build -o main .
+```
+
+本地不在云托管 VPC 内时，`MYSQL_ADDRESS` 要填 MySQL 的**外网地址**。
 
 ### 接口一览
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/admin/overview` | 概览：当前计数、记录数、数据库延迟、运行时长 |
+| GET | `/api/admin/overview` | 概览：计数、记录数、数据库延迟、运行时长 |
 | GET | `/api/admin/counters` | 全部计数记录 |
 | POST | `/api/admin/counters` | 新建记录，body `{"count":0}`，可省略 body |
 | POST | `/api/admin/counters/incr` | 自增，body `{"id":1,"step":1}` |
@@ -131,24 +191,10 @@ curl -X POST -H 'content-type: application/json' -d '{"action": "inc"}' https://
 
 ### 访问控制
 
-在云托管「服务设置 → 环境变量」中配置 `ADMIN_TOKEN` 后，所有管理接口都需要携带请求头
-`X-Admin-Token: <你的密钥>`（或查询参数 `?token=`）才会放行，未携带返回 401；
-页面首次访问会弹窗要求输入密钥，密钥保存在浏览器本地。
+在云托管「服务设置 → 环境变量」配置 `ADMIN_TOKEN` 后，所有 `/api/admin/*` 接口需携带请求头
+`X-Admin-Token: <密钥>`，否则返回 401；前端会在登录页要求输入密钥，并保存在浏览器本地。
 
-**未配置 `ADMIN_TOKEN` 时管理页面完全公开**，公网环境请务必配置，否则任何人都能改数据。
-
-### 本地调试
-
-```bash
-export MYSQL_USERNAME=xxx MYSQL_PASSWORD=xxx
-export MYSQL_ADDRESS=10.0.0.0:3306 MYSQL_DATABASE=golang_demo
-go run .              # 默认监听 80 端口
-PORT=8080 go run .    # 或指定端口
-```
-
-本地不在云托管 VPC 内时，`MYSQL_ADDRESS` 要填 MySQL 的**外网地址**。
-
-
+**未配置 `ADMIN_TOKEN` 时后台完全公开**，公网环境请务必配置。
 
 ## License
 

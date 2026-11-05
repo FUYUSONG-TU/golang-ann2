@@ -1,0 +1,18 @@
+# 依赖与构建产物
+web/node_modules/
+web/dist/
+web/.vite/
+
+# 本地构建产物
+/main
+/ann2-test.exe
+*.exe
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+
+# 环境变量（不要把密钥提交进仓库）
+.env
+.env.local

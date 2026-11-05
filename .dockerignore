@@ -1,0 +1,13 @@
+.git
+.gitignore
+README.md
+LICENSE
+
+# 前端依赖与产物不进入构建上下文（dist 由构建阶段生成）
+web/node_modules
+web/dist
+web/.vite
+
+# 本地杂项
+*.log
+.DS_Store

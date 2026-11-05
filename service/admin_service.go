@@ -2,7 +2,6 @@ package service
 
 import (
 	"crypto/subtle"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,27 +17,13 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed admin.html
-var adminPageHTML string
-
-// adminVersion 后台管理模块版本
-const adminVersion = "1.0.0"
+// adminVersion 后台管理接口版本
+const adminVersion = "2.0.0"
 
 // defaultCounterID 模板默认使用的计数器主键
 const defaultCounterID int32 = 1
 
 var adminStartAt = time.Now()
-
-// AdminPageHandler 后台管理页面
-func AdminPageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/admin" && r.URL.Path != "/admin/" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprint(w, adminPageHTML)
-}
 
 // AdminAPIHandler 后台管理接口的统一入口，路径前缀 /api/admin
 func AdminAPIHandler(w http.ResponseWriter, r *http.Request) {
