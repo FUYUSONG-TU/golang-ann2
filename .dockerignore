@@ -11,3 +11,6 @@ web/.vite
 # 本地杂项
 *.log
 .DS_Store
+
+# 本地验证目录
+.shots

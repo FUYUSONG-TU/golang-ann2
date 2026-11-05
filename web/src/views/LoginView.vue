@@ -1,263 +1,182 @@
 <template>
   <div class="jj-login">
-    <div class="jj-login-panel">
+    <aside class="jj-login-side">
       <div class="jj-login-brand">
-        <div class="jj-login-logo">匠</div>
-        <div class="jj-login-title">机匠学徒</div>
-        <div class="jj-login-slogan">手艺传下去，数据管起来</div>
+        <div class="jj-login-mark">匠</div>
+        <div>
+          <div class="jj-login-brand-name">机匠学徒</div>
+          <div class="jj-login-brand-sub">ADMIN CONSOLE</div>
+        </div>
       </div>
-      <ul class="jj-login-points">
-        <li><el-icon><Cpu /></el-icon> Go + Vue3 一体化部署</li>
-        <li><el-icon><DataLine /></el-icon> 运行状态实时可见</li>
-        <li><el-icon><Lock /></el-icon> 密钥保护管理入口</li>
-      </ul>
-      <div class="jj-login-foot">Powered by 微信云托管</div>
-    </div>
 
-    <div class="jj-login-form-wrap">
-      <div class="jj-login-form">
-        <h2>管理员登录</h2>
-        <p class="jj-login-hint">
-          {{ probing ? '正在检测服务状态…' : auth.authRequired ? '请输入服务端配置的管理密钥' : '服务未启用访问控制，可直接进入' }}
+      <div class="jj-login-copy">
+        <h1>把手艺沉进系统里，<br />让每一次交付都有据可查。</h1>
+        <p>
+          账号、角色、日志、数据看板与小程序端接口骨架都已就位。<br />
+          这里是机匠学徒的统一后台入口。
         </p>
+      </div>
 
-        <el-skeleton v-if="probing" :rows="2" animated />
+      <div class="jj-login-points">
+        <span>· 多角色权限</span>
+        <span>· 登录与操作留痕</span>
+        <span>· 小程序接口预留</span>
+      </div>
+    </aside>
 
-        <template v-else-if="!auth.authRequired">
-          <el-alert type="warning" :closable="false" show-icon
-            title="当前未配置 ADMIN_TOKEN，任何人都能访问后台"
-            description="建议到云托管「服务设置 → 环境变量」添加 ADMIN_TOKEN 后重新部署。" />
-          <el-button type="primary" size="large" class="jj-login-btn" @click="go">
-            进入控制台
-          </el-button>
-        </template>
+    <main class="jj-login-main">
+      <div class="jj-login-form">
+        <h2>后台登录</h2>
+        <p class="desc">请使用管理员账号登录，未授权访问将被记录。</p>
 
-        <template v-else>
-          <el-input
-            v-model="token"
-            size="large"
-            type="password"
-            show-password
-            placeholder="请输入 ADMIN_TOKEN"
-            prefix-icon="Key"
-            @keyup.enter="submit"
-          />
+        <el-alert
+          v-if="errorMsg"
+          :title="errorMsg"
+          type="error"
+          :closable="false"
+          show-icon
+          class="mb"
+        />
+
+        <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent>
+          <el-form-item prop="username">
+            <el-input v-model="form.username" placeholder="账号" clearable @keyup.enter="submit">
+              <template #prefix><el-icon><User /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <el-form-item prop="password">
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="密码"
+              show-password
+              @keyup.enter="submit"
+            >
+              <template #prefix><el-icon><Lock /></el-icon></template>
+            </el-input>
+          </el-form-item>
+
+          <div class="row">
+            <el-checkbox v-model="form.remember">7 天内保持登录</el-checkbox>
+            <span class="forget" @click="showHelp">登录遇到问题？</span>
+          </div>
+
           <el-button
             type="primary"
             size="large"
-            class="jj-login-btn"
+            class="submit"
             :loading="loading"
             @click="submit"
           >
-            验证并进入
+            登录
           </el-button>
-        </template>
+        </el-form>
 
         <div class="jj-login-tip">
-          密钥在云托管控制台配置，名称 <code>ADMIN_TOKEN</code>
+          首次部署内置账号 <b>admin</b>，初始密码 <b>admin123</b>。登录后请立即到「个人中心」修改，
+          或通过环境变量 <code>ADMIN_INIT_PASSWORD</code> 指定初始密码。
         </div>
+
+        <div class="jj-login-foot">{{ copyright }}</div>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
-import { auth, setToken } from '../store/auth'
+import { auth, setSession } from '../store/auth'
 
 const route = useRoute()
 const router = useRouter()
 
-const token = ref(auth.token || '')
+const formRef = ref(null)
 const loading = ref(false)
-const probing = ref(true)
+const errorMsg = ref('')
+const copyright = ref('© 2026 机匠学徒')
 
-onMounted(async () => {
-  try {
-    await api.probe()
-    auth.authRequired = false
-  } catch {
-    auth.authRequired = true
-  } finally {
-    auth.checked = true
-    probing.value = false
-  }
-})
-
-function go() {
-  const r = route.query.redirect
-  router.replace(typeof r === 'string' && r ? r : '/')
+const form = reactive({ username: '', password: '', remember: true })
+const rules = {
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
 async function submit() {
-  const val = token.value.trim()
-  if (!val) {
-    ElMessage.warning('请输入管理密钥')
-    return
-  }
-  loading.value = true
-  try {
-    setToken(val)
-    await api.overview()
-    auth.authRequired = true
-    auth.checked = true
-    ElMessage.success('验证通过')
-    go()
-  } catch (e) {
-    setToken('')
-    ElMessage.error(e.message || '密钥验证失败')
-  } finally {
-    loading.value = false
-  }
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    loading.value = true
+    errorMsg.value = ''
+    try {
+      const data = await api.login(form.username.trim(), form.password, form.remember)
+      setSession({
+        token: data.token,
+        user: data.user,
+        role: data.role,
+        permissions: data.permissions
+      })
+      if (data.user?.mustChangePwd) {
+        ElMessage.warning('当前账号仍在使用初始密码，请尽快到「个人中心」修改')
+      } else {
+        ElMessage.success('登录成功')
+      }
+      const redirect = route.query.redirect
+      router.replace(typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/')
+    } catch (e) {
+      errorMsg.value = e.message || '登录失败'
+    } finally {
+      loading.value = false
+    }
+  })
 }
+
+function showHelp() {
+  ElMessageBox.alert(
+    '1. 账号或密码错误会记录在登录日志中；\n2. 忘记密码请联系超级管理员在「账号管理」中重置；\n3. 若刚部署，使用初始账号 admin / admin123 登录。',
+    '登录帮助',
+    { confirmButtonText: '知道了' }
+  )
+}
+
+onMounted(() => {
+  if (auth.token) router.replace('/')
+})
 </script>
 
 <style scoped>
-.jj-login {
-  height: 100vh;
-  display: flex;
-  background: #f5f6f8;
+.mb {
+  margin-bottom: 16px;
 }
 
-/* 左侧品牌区 */
-.jj-login-panel {
-  width: 44%;
-  max-width: 520px;
-  background: radial-gradient(circle at 20% 15%, #2c3852 0%, #1d2531 55%, #161c26 100%);
-  color: #fff;
-  padding: 54px 48px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-
-.jj-login-panel::after {
-  content: '';
-  position: absolute;
-  right: -120px;
-  bottom: -120px;
-  width: 320px;
-  height: 320px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(232, 114, 44, 0.28), transparent 65%);
-}
-
-.jj-login-brand {
-  position: relative;
-  z-index: 1;
-}
-
-.jj-login-logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 13px;
-  background: linear-gradient(135deg, #f08a4b, #e8722c);
+.row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  font-weight: 700;
-  box-shadow: 0 8px 24px rgba(232, 114, 44, 0.4);
+  justify-content: space-between;
+  margin: -4px 0 18px;
 }
 
-.jj-login-title {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  margin-top: 22px;
+.forget {
+  font-size: 12.5px;
+  color: #9aa4b2;
+  cursor: pointer;
 }
 
-.jj-login-slogan {
-  color: #8b97a9;
-  font-size: 14px;
-  letter-spacing: 1px;
-  margin-top: 8px;
-}
-
-.jj-login-points {
-  list-style: none;
-  padding: 0;
-  margin: 44px 0 0;
-  position: relative;
-  z-index: 1;
-  flex: 1;
-}
-
-.jj-login-points li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #b3bccb;
-  font-size: 13.5px;
-  padding: 9px 0;
-}
-
-.jj-login-points li .el-icon {
+.forget:hover {
   color: var(--jj-orange);
-  font-size: 15px;
 }
 
-.jj-login-foot {
-  color: #5c6675;
-  font-size: 12px;
-  position: relative;
-  z-index: 1;
-}
-
-/* 右侧表单 */
-.jj-login-form-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.jj-login-form {
+.submit {
   width: 100%;
-  max-width: 360px;
+  letter-spacing: 4px;
 }
 
-.jj-login-form h2 {
-  font-size: 22px;
-  margin: 0 0 8px;
-  color: var(--jj-ink);
-}
-
-.jj-login-hint {
-  color: #8a94a6;
-  font-size: 13px;
-  margin: 0 0 20px;
-  min-height: 20px;
-}
-
-.jj-login-btn {
-  width: 100%;
-  margin-top: 16px;
-  letter-spacing: 2px;
-}
-
-.jj-login-tip {
-  margin-top: 22px;
-  font-size: 12px;
-  color: #a5adba;
-  text-align: center;
-}
-
-.jj-login-tip code {
-  background: #eceef2;
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: #5c6675;
-}
-
-@media (max-width: 860px) {
-  .jj-login-panel {
-    display: none;
-  }
+code {
+  background: rgba(154, 90, 44, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11.5px;
 }
 </style>

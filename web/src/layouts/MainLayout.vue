@@ -1,10 +1,10 @@
 <template>
   <el-container class="jj-layout">
-    <el-aside :width="collapsed ? '64px' : '220px'" class="jj-aside">
+    <el-aside :width="collapsed ? '64px' : '228px'" class="jj-aside">
       <div class="jj-brand">
-        <div class="jj-logo">匠</div>
+        <div class="jj-logo">{{ logoText }}</div>
         <div v-show="!collapsed" class="jj-brand-text">
-          <div class="jj-brand-name">机匠学徒</div>
+          <div class="jj-brand-name">{{ siteName }}</div>
           <div class="jj-brand-sub">ADMIN CONSOLE</div>
         </div>
       </div>
@@ -19,15 +19,19 @@
         text-color="#b3bccb"
         active-text-color="#ffffff"
       >
-        <el-menu-item v-for="m in menus" :key="m.path" :index="m.path">
-          <el-icon><component :is="m.icon" /></el-icon>
-          <template #title>{{ m.title }}</template>
-        </el-menu-item>
+        <template v-for="group in visibleGroups" :key="group.title">
+          <div v-show="!collapsed" class="jj-menu-group">{{ group.title }}</div>
+          <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </template>
       </el-menu>
 
       <div v-show="!collapsed" class="jj-aside-foot">
-        <span class="jj-dot" :class="onLine ? 'ok' : 'bad'" />
-        {{ onLine ? '服务在线' : '连接异常' }}
+        <span class="jj-dot" :class="online ? 'ok' : 'bad'" />
+        <span>{{ online ? '服务正常' : '连接异常' }}</span>
+        <span class="ver">v{{ version }}</span>
       </div>
     </el-aside>
 
@@ -38,33 +42,41 @@
             <component :is="collapsed ? 'Expand' : 'Fold'" />
           </el-icon>
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item>机匠学徒</el-breadcrumb-item>
+            <el-breadcrumb-item :to="{ path: '/' }">{{ siteName }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="groupTitle">{{ groupTitle }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ pageTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
 
         <div class="jj-header-right">
-          <el-tag v-if="auth.authRequired" size="small" type="success" effect="plain">
-            访问控制已启用
-          </el-tag>
-          <el-tag v-else size="small" type="warning" effect="plain">未设密钥</el-tag>
-
-          <el-tooltip content="刷新数据" placement="bottom">
-            <el-button circle text @click="reload">
+          <el-tooltip content="刷新当前页" placement="bottom">
+            <el-button text circle @click="reload">
               <el-icon><Refresh /></el-icon>
             </el-button>
           </el-tooltip>
 
+          <el-divider direction="vertical" />
+
           <el-dropdown trigger="click" @command="onCommand">
             <div class="jj-user">
-              <el-avatar :size="28" class="jj-avatar">匠</el-avatar>
-              <span class="jj-user-name">管理员</span>
+              <el-avatar :size="28" class="jj-avatar">{{ avatarText }}</el-avatar>
+              <div class="jj-user-meta">
+                <span class="jj-user-name">{{ displayName }}</span>
+                <span class="jj-user-role">{{ roleName }}</span>
+              </div>
               <el-icon class="jj-user-arrow"><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="about">系统信息</el-dropdown-item>
-                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+                <el-dropdown-item command="profile">
+                  <el-icon><User /></el-icon>个人中心
+                </el-dropdown-item>
+                <el-dropdown-item command="password">
+                  <el-icon><Lock /></el-icon>修改密码
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -79,47 +91,153 @@
         </router-view>
       </el-main>
     </el-container>
+
+    <el-dialog v-model="pwdVisible" title="修改密码" width="420px" :close-on-click-modal="false">
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="88px">
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input v-model="pwdForm.confirmPassword" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="submitPassword">保存</el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
 <script setup>
-import { computed, provide, ref } from 'vue'
+import { computed, onMounted, provide, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { auth, setToken } from '../store/auth'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { menuGroups } from '../menu'
+import { api } from '../api'
+import { auth, canView, clearSession, patchUser } from '../store/auth'
 
 const route = useRoute()
 const router = useRouter()
 
 const collapsed = ref(false)
-const onLine = ref(true)
+const online = ref(true)
 const reloadTick = ref(0)
+const version = ref('3.0.0')
+const siteName = ref('机匠学徒')
+const logoText = ref('匠')
 
 provide('jjReloadTick', reloadTick)
-provide('jjOnline', onLine)
+provide('jjOnline', online)
 
-const menus = [
-  { path: '/', title: '仪表盘', icon: 'Odometer' },
-  { path: '/counters', title: '计数管理', icon: 'Tickets' },
-  { path: '/about', title: '系统信息', icon: 'InfoFilled' }
-]
+const visibleGroups = computed(() =>
+  menuGroups
+    .map((g) => ({ ...g, items: g.items.filter((i) => canView(i.module)) }))
+    .filter((g) => g.items.length)
+)
 
 const activeMenu = computed(() => (route.path === '/' ? '/' : route.path))
-const pageTitle = computed(() => route.meta.title || '仪表盘')
+const pageTitle = computed(() => route.meta.title || '数据看板')
+const groupTitle = computed(() => {
+  const hit = menuGroups.find((g) => g.items.some((i) => i.path === route.path))
+  return hit ? hit.title : ''
+})
+
+const displayName = computed(() => auth.user?.nickname || auth.user?.username || '管理员')
+const roleName = computed(() => auth.role?.name || '未分配角色')
+const avatarText = computed(() => (displayName.value || '管').slice(0, 1))
+
+const pwdVisible = ref(false)
+const pwdSaving = ref(false)
+const pwdFormRef = ref(null)
+const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const pwdRules = {
+  oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '密码至少 6 位', trigger: 'blur' }
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    {
+      validator: (rule, value, cb) => {
+        if (value !== pwdForm.newPassword) cb(new Error('两次输入的密码不一致'))
+        else cb()
+      },
+      trigger: 'blur'
+    }
+  ]
+}
 
 function reload() {
   reloadTick.value += 1
 }
 
 function onCommand(cmd) {
-  if (cmd === 'about') {
-    router.push('/about')
+  if (cmd === 'profile') return router.push('/profile')
+  if (cmd === 'password') return openPassword()
+  if (cmd === 'logout') return doLogout()
+}
+
+function openPassword() {
+  pwdForm.oldPassword = ''
+  pwdForm.newPassword = ''
+  pwdForm.confirmPassword = ''
+  pwdVisible.value = true
+}
+
+async function submitPassword() {
+  if (!pwdFormRef.value) return
+  await pwdFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    pwdSaving.value = true
+    try {
+      await api.changePassword(pwdForm.oldPassword, pwdForm.newPassword)
+      ElMessage.success('密码已更新，请重新登录')
+      pwdVisible.value = false
+      clearSession()
+      router.replace('/login')
+    } catch (e) {
+      ElMessage.error(e.message)
+    } finally {
+      pwdSaving.value = false
+    }
+  })
+}
+
+async function doLogout() {
+  try {
+    await ElMessageBox.confirm('确认退出当前账号？', '退出登录', {
+      confirmButtonText: '退出',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch {
     return
   }
-  if (cmd === 'logout') {
-    setToken('')
-    router.replace('/login')
+  try {
+    await api.logout()
+  } catch {
+    /* 退出失败也要清本地状态 */
   }
+  clearSession()
+  router.replace('/login')
 }
+
+onMounted(async () => {
+  if (auth.user) patchUser(auth.user)
+  try {
+    const info = await api.profile()
+    online.value = info.dbOk
+    version.value = info.version || version.value
+    if (info.siteName) siteName.value = info.siteName
+  } catch {
+    online.value = false
+  }
+})
 </script>
 
 <style scoped>
@@ -153,7 +271,7 @@ function onCommand(cmd) {
   border-radius: 7px;
   background: linear-gradient(135deg, #f08a4b, #e8722c);
   color: #fff;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -172,6 +290,7 @@ function onCommand(cmd) {
   font-weight: 600;
   letter-spacing: 1px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .jj-brand-sub {
@@ -184,16 +303,24 @@ function onCommand(cmd) {
 .jj-menu {
   border-right: none;
   flex: 1;
-  padding: 8px 0;
+  padding: 6px 0 12px;
   overflow-y: auto;
 }
 
+.jj-menu-group {
+  padding: 14px 18px 6px;
+  font-size: 10.5px;
+  letter-spacing: 1.4px;
+  color: #5c6a7e;
+  text-transform: uppercase;
+}
+
 .jj-menu :deep(.el-menu-item) {
-  height: 44px;
-  line-height: 44px;
+  height: 42px;
+  line-height: 42px;
   margin: 2px 8px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .jj-menu :deep(.el-menu-item:hover) {
@@ -203,7 +330,7 @@ function onCommand(cmd) {
 .jj-menu :deep(.el-menu-item.is-active) {
   background: var(--jj-orange) !important;
   color: #fff !important;
-  box-shadow: 0 2px 10px rgba(232, 114, 44, 0.35);
+  box-shadow: 0 2px 10px rgba(232, 114, 44, 0.32);
 }
 
 .jj-aside-foot {
@@ -215,6 +342,11 @@ function onCommand(cmd) {
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
+}
+
+.jj-aside-foot .ver {
+  margin-left: auto;
+  color: #4d5a6c;
 }
 
 .jj-dot {
@@ -251,6 +383,7 @@ function onCommand(cmd) {
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
 .jj-collapse {
@@ -267,7 +400,7 @@ function onCommand(cmd) {
 .jj-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .jj-user {
@@ -290,9 +423,20 @@ function onCommand(cmd) {
   font-weight: 600;
 }
 
+.jj-user-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
 .jj-user-name {
   font-size: 13px;
   color: #3d4653;
+}
+
+.jj-user-role {
+  font-size: 11px;
+  color: #a5adba;
 }
 
 .jj-user-arrow {
@@ -305,19 +449,5 @@ function onCommand(cmd) {
   background: var(--jj-bg);
   padding: 0;
   overflow-y: auto;
-}
-
-.jj-fade-enter-active,
-.jj-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.jj-fade-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
-
-.jj-fade-leave-to {
-  opacity: 0;
 }
 </style>

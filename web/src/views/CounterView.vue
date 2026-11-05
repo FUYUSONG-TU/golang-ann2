@@ -2,233 +2,173 @@
   <div class="jj-page">
     <div class="jj-page-head">
       <div>
-        <h1 class="jj-page-title">计数管理</h1>
-        <p class="jj-page-desc">管理 Counters 表中的记录，所有改动即时写入数据库</p>
+        <h2 class="jj-page-title">计数管理</h2>
+        <p class="jj-page-desc">
+          模板自带的示例业务数据，用于验证前后端与数据库链路。小程序端接入后可替换为真实业务表。
+        </p>
       </div>
-      <div class="jj-toolbar">
-        <el-input
-          v-model="keyword"
-          placeholder="按 ID 或数值筛选"
-          clearable
-          style="width: 200px"
-          prefix-icon="Search"
-        />
-        <el-button :loading="loading" @click="load">
-          <el-icon><Refresh /></el-icon>
-        </el-button>
-        <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon>
-          <span style="margin-left: 4px">新建记录</span>
+      <div class="jj-page-actions">
+        <el-button v-if="canEdit" type="primary" @click="create">
+          <el-icon><Plus /></el-icon>新建记录
         </el-button>
       </div>
     </div>
 
-    <el-alert
-      v-if="error"
-      type="error"
-      :closable="false"
-      show-icon
-      :title="'加载失败：' + error"
-      style="margin-bottom: 16px"
-    />
+    <div class="jj-stats">
+      <div class="jj-stat">
+        <div class="jj-stat-label"><el-icon><Coin /></el-icon>主计数器</div>
+        <div class="jj-stat-value">{{ mainCount }}<span class="jj-stat-unit">次</span></div>
+        <div class="jj-stat-foot">对应 id = 1 的记录</div>
+      </div>
+      <div class="jj-stat ok">
+        <div class="jj-stat-label"><el-icon><Tickets /></el-icon>记录总数</div>
+        <div class="jj-stat-value">{{ list.length }}<span class="jj-stat-unit">条</span></div>
+        <div class="jj-stat-foot">Counters 表</div>
+      </div>
+      <div class="jj-stat warn">
+        <div class="jj-stat-label"><el-icon><Timer /></el-icon>最近更新</div>
+        <div class="jj-stat-value small">{{ lastUpdated }}</div>
+        <div class="jj-stat-foot">按更新时间取最新一条</div>
+      </div>
+      <div class="jj-stat">
+        <div class="jj-stat-label"><el-icon><Link /></el-icon>对外接口</div>
+        <div class="jj-stat-value small">/api/count</div>
+        <div class="jj-stat-foot">GET 读取 · POST 自增/清零</div>
+      </div>
+    </div>
 
     <div class="jj-card">
       <div class="jj-card-head">
-        <div class="jj-card-title">数据记录</div>
-        <span class="jj-count-hint">共 {{ filtered.length }} 条</span>
+        <div class="jj-card-title">计数记录</div>
+        <el-button text :loading="loading" @click="load">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
       </div>
 
-      <el-table
-        v-loading="loading"
-        :data="paged"
-        stripe
-        empty-text="暂无记录，点击右上角新建"
-        style="width: 100%"
-      >
+      <el-table :data="list" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column label="计数" width="120">
+        <el-table-column label="当前计数" width="140">
           <template #default="{ row }">
-            <span class="jj-count-cell">{{ row.count }}</span>
+            <span class="count-value">{{ row.count }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" min-width="170">
+        <el-table-column label="创建时间" width="180">
           <template #default="{ row }">
-            <span class="jj-mono">{{ fmtTime(row.createdAt) }}</span>
+            <span class="jj-sub">{{ fmt(row.createdAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="更新时间" min-width="170">
+        <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
-            <span class="jj-mono">{{ fmtTime(row.updatedAt) }}</span>
+            <span class="jj-sub">{{ fmt(row.updatedAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="316" fixed="right">
+        <el-table-column label="操作">
           <template #default="{ row }">
-            <el-button size="small" type="primary" plain @click="incr(row, 1)">+1</el-button>
-            <el-button size="small" plain @click="openIncr(row)">自增…</el-button>
-            <el-button size="small" plain @click="openSet(row)">改值</el-button>
-            <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+            <template v-if="canEdit">
+              <el-button link type="primary" @click="incr(row)">+1</el-button>
+              <el-button link type="primary" @click="openSet(row)">设为指定值</el-button>
+              <el-button link type="danger" @click="remove(row)">删除</el-button>
+            </template>
+            <span v-else class="jj-sub">只读</span>
           </template>
         </el-table-column>
+        <template #empty>
+          <div class="jj-empty">暂无计数记录</div>
+        </template>
       </el-table>
-
-      <div class="jj-pager">
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="size"
-          :page-sizes="[10, 20, 50]"
-          :total="filtered.length"
-          layout="total, sizes, prev, pager, next"
-          background
-        />
-      </div>
     </div>
 
-    <el-dialog v-model="dlg.visible" :title="dlgTitle" width="380px" @closed="resetDlg">
-      <div class="jj-dlg-body">
-        <div class="jj-dlg-label">{{ dlg.mode === 'incr' ? '自增步长' : '数值' }}</div>
-        <el-input-number
-          v-model="dlg.value"
-          :min="dlg.mode === 'incr' ? 1 : 0"
-          :max="1000000"
-          size="large"
-          style="width: 100%"
-        />
-        <div class="jj-dlg-tip">
-          <template v-if="dlg.mode === 'create'">将新建一条初始值为 {{ dlg.value }} 的记录</template>
-          <template v-else-if="dlg.mode === 'set'">
-            ID={{ dlg.id }} 的计数将被覆盖为 {{ dlg.value }}
-          </template>
-          <template v-else>ID={{ dlg.id }} 将增加 {{ dlg.value }}</template>
-        </div>
-      </div>
+    <el-dialog v-model="setVisible" title="设置计数值" width="380px">
+      <el-form label-width="80px">
+        <el-form-item label="计数值">
+          <el-input-number v-model="setValue" :min="0" :max="999999999" style="width: 100%" />
+        </el-form-item>
+      </el-form>
       <template #footer>
-        <el-button @click="dlg.visible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitDlg">确定</el-button>
+        <el-button @click="setVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitSet">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
+import { canWrite } from '../store/auth'
 
 const reloadTick = inject('jjReloadTick', ref(0))
+const canEdit = computed(() => canWrite('counters'))
 
-const rows = ref([])
 const loading = ref(false)
-const submitting = ref(false)
-const error = ref('')
-const keyword = ref('')
-const page = ref(1)
-const size = ref(10)
+const saving = ref(false)
+const list = ref([])
+const setVisible = ref(false)
+const setValue = ref(0)
+const setTarget = ref(null)
 
-const dlg = reactive({
-  visible: false,
-  mode: 'create',
-  id: null,
-  value: 1
+const mainCount = computed(() => list.value.find((i) => i.id === 1)?.count ?? 0)
+const lastUpdated = computed(() => {
+  if (!list.value.length) return '-'
+  const latest = list.value.reduce((a, b) => (new Date(a.updatedAt) > new Date(b.updatedAt) ? a : b))
+  return fmt(latest.updatedAt)
 })
 
-const dlgTitle = computed(() => {
-  if (dlg.mode === 'create') return '新建记录'
-  if (dlg.mode === 'set') return '修改计数值'
-  return '按步长自增'
-})
-
-const filtered = computed(() => {
-  const k = keyword.value.trim()
-  if (!k) return rows.value
-  return rows.value.filter((r) => String(r.id).includes(k) || String(r.count).includes(k))
-})
-
-const paged = computed(() => {
-  const start = (page.value - 1) * size.value
-  return filtered.value.slice(start, start + size.value)
-})
-
-watch(keyword, () => {
-  page.value = 1
-})
-
-function fmtTime(v) {
+function fmt(v) {
   if (!v) return '-'
   const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return v
   const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
-    const data = await api.listCounters()
-    rows.value = data.list || []
-    const maxPage = Math.max(1, Math.ceil(filtered.value.length / size.value))
-    if (page.value > maxPage) page.value = maxPage
+    const data = await api.counters.list()
+    list.value = data.list || []
   } catch (e) {
-    error.value = e.message || '未知错误'
+    ElMessage.error(e.message)
   } finally {
     loading.value = false
   }
 }
 
-function resetDlg() {
-  dlg.id = null
-  dlg.value = 1
-  dlg.mode = 'create'
-}
-
-function openCreate() {
-  dlg.mode = 'create'
-  dlg.value = 1
-  dlg.id = null
-  dlg.visible = true
-}
-
-function openSet(row) {
-  dlg.mode = 'set'
-  dlg.id = row.id
-  dlg.value = row.count
-  dlg.visible = true
-}
-
-function openIncr(row) {
-  dlg.mode = 'incr'
-  dlg.id = row.id
-  dlg.value = 1
-  dlg.visible = true
-}
-
-async function submitDlg() {
-  submitting.value = true
+async function incr(row) {
   try {
-    if (dlg.mode === 'create') {
-      await api.createCounter(dlg.value)
-      ElMessage.success('记录已创建')
-    } else if (dlg.mode === 'set') {
-      await api.setCounter(dlg.id, dlg.value)
-      ElMessage.success('已更新')
-    } else {
-      const r = await api.incrCounter(dlg.id, dlg.value)
-      ElMessage.success(`已自增，当前值 ${r.count}`)
-    }
-    dlg.visible = false
-    await load()
+    await api.counters.incr(row.id, 1)
+    ElMessage.success('已 +1')
+    load()
   } catch (e) {
     ElMessage.error(e.message)
-  } finally {
-    submitting.value = false
   }
 }
 
-async function incr(row, step) {
+function openSet(row) {
+  setTarget.value = row
+  setValue.value = row.count
+  setVisible.value = true
+}
+
+async function submitSet() {
+  saving.value = true
   try {
-    const r = await api.incrCounter(row.id, step)
-    ElMessage.success(`ID=${row.id} 当前值 ${r.count}`)
-    await load()
+    await api.counters.set(setTarget.value.id, setValue.value)
+    ElMessage.success('已保存')
+    setVisible.value = false
+    load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function create() {
+  try {
+    await api.counters.create(0)
+    ElMessage.success('已新建一条记录')
+    load()
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -236,18 +176,18 @@ async function incr(row, step) {
 
 async function remove(row) {
   try {
-    await ElMessageBox.confirm(
-      `确认删除 ID=${row.id}（计数 ${row.count}）的记录？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-    )
+    await ElMessageBox.confirm(`确认删除 id=${row.id} 的计数记录？`, '删除记录', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
   } catch {
     return
   }
   try {
-    await api.deleteCounter(row.id)
+    await api.counters.remove(row.id)
     ElMessage.success('已删除')
-    await load()
+    load()
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -258,48 +198,16 @@ onMounted(load)
 </script>
 
 <style scoped>
-.jj-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.jj-count-hint {
-  font-size: 12.5px;
-  color: #8a94a6;
-}
-
-.jj-count-cell {
-  font-size: 16px;
+.jj-stat-value.small {
+  font-size: 17px;
   font-weight: 600;
+  margin-top: 12px;
+}
+
+.count-value {
+  font-size: 16px;
+  font-weight: 650;
   color: var(--jj-orange);
   font-variant-numeric: tabular-nums;
-}
-
-.jj-pager {
-  display: flex;
-  justify-content: flex-end;
-  padding: 14px 18px;
-  border-top: 1px solid var(--jj-line);
-}
-
-.jj-dlg-body {
-  padding: 4px 2px 0;
-}
-
-.jj-dlg-label {
-  font-size: 13px;
-  color: #5c6675;
-  margin-bottom: 8px;
-}
-
-.jj-dlg-tip {
-  margin-top: 12px;
-  font-size: 12.5px;
-  color: #8a94a6;
-  background: #f7f8fa;
-  border-radius: 6px;
-  padding: 9px 12px;
-  line-height: 1.6;
 }
 </style>

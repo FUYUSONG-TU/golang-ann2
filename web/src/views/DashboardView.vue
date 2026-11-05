@@ -2,173 +2,270 @@
   <div class="jj-page">
     <div class="jj-page-head">
       <div>
-        <h1 class="jj-page-title">仪表盘</h1>
-        <p class="jj-page-desc">服务运行概览与数据快照，数据来自实时接口</p>
+        <h2 class="jj-page-title">
+          {{ greeting }}，{{ displayName }}
+          <el-tag v-if="auth.role" size="small" effect="plain" type="warning">{{ auth.role.name }}</el-tag>
+        </h2>
+        <p class="jj-page-desc">
+          今天是 {{ todayText }}，这里是机匠学徒后台的整体运行情况。
+        </p>
       </div>
-      <el-button :loading="loading" @click="load">
-        <el-icon><Refresh /></el-icon>
-        <span style="margin-left: 4px">刷新</span>
-      </el-button>
+      <div class="jj-page-actions">
+        <el-button :loading="loading" @click="load">
+          <el-icon><Refresh /></el-icon>刷新
+        </el-button>
+        <el-button v-if="canWriteUsers" type="primary" @click="$router.push('/users')">
+          <el-icon><Plus /></el-icon>新建账号
+        </el-button>
+      </div>
     </div>
 
     <el-alert
-      v-if="error"
-      type="error"
+      v-if="announcement"
+      class="announce"
+      type="warning"
       :closable="false"
       show-icon
-      :title="'数据加载失败：' + error"
-      style="margin-bottom: 16px"
+      :title="announcement"
     />
 
-    <el-skeleton v-if="loading && !ov" :rows="6" animated />
+    <el-alert v-if="auth.user?.mustChangePwd" class="announce" type="error" show-icon :closable="false">
+      <template #title>当前账号仍在使用初始密码，存在安全风险</template>
+      <template #default>
+        请前往「个人中心」修改密码，修改后该提示自动消失。
+        <el-button link type="primary" size="small" @click="$router.push('/profile')">去修改</el-button>
+      </template>
+    </el-alert>
 
-    <template v-else>
-      <div class="jj-stats">
-        <div class="jj-stat">
-          <div class="jj-stat-label"><el-icon><Odometer /></el-icon> 当前计数</div>
-          <div class="jj-stat-value">{{ ov?.count ?? '-' }}</div>
-          <div class="jj-stat-foot">主记录 ID = {{ ov?.defaultCounterId ?? 1 }}</div>
+    <div class="jj-stats" v-loading="loading">
+      <div class="jj-stat">
+        <div class="jj-stat-label"><el-icon><User /></el-icon>账号总数</div>
+        <div class="jj-stat-value">
+          {{ cards.userTotal }}<span class="jj-stat-unit">个</span>
         </div>
-        <div class="jj-stat">
-          <div class="jj-stat-label"><el-icon><Tickets /></el-icon> 记录总数</div>
-          <div class="jj-stat-value">{{ ov?.total ?? '-' }}</div>
-          <div class="jj-stat-foot">Counters 表行数</div>
-        </div>
-        <div class="jj-stat">
-          <div class="jj-stat-label"><el-icon><Timer /></el-icon> 数据库延迟</div>
-          <div class="jj-stat-value">
-            {{ ov?.dbLatencyMs ?? '-' }}<span class="jj-stat-unit">ms</span>
-          </div>
-          <div class="jj-stat-foot">{{ ov?.dbOk ? '连接正常' : '连接异常' }}</div>
-        </div>
-        <div class="jj-stat">
-          <div class="jj-stat-label"><el-icon><Clock /></el-icon> 运行时长</div>
-          <div class="jj-stat-value">{{ uptimeText }}</div>
-          <div class="jj-stat-foot">当前容器实例</div>
+        <div class="jj-stat-foot">
+          启用 {{ cards.userActive }} · 今日新增 {{ cards.userToday }}
         </div>
       </div>
-
-      <div class="jj-grid">
-        <div class="jj-card">
-          <div class="jj-card-head">
-            <div class="jj-card-title">服务信息</div>
-            <el-tag :type="ov?.dbOk ? 'success' : 'danger'" size="small" effect="plain">
-              {{ ov?.dbOk ? '运行中' : '数据库异常' }}
-            </el-tag>
-          </div>
-          <div class="jj-card-body">
-            <el-descriptions :column="1" border size="small">
-              <el-descriptions-item label="服务版本">{{ ov?.version || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="服务器时间">
-                <span class="jj-mono">{{ fmtTime(ov?.serverTime) }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item label="时区">
-                <span class="jj-mono">{{ ov?.timeZone || '-' }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item label="最近更新">
-                <span class="jj-mono">{{ fmtTime(ov?.lastUpdatedAt) }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item label="访问控制">
-                <el-tag v-if="ov?.authRequired" type="success" size="small">已启用</el-tag>
-                <el-tag v-else type="warning" size="small">未启用</el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="数据库错误">
-                <span :class="{ 'jj-err': ov?.dbError }">{{ ov?.dbError || '无' }}</span>
-              </el-descriptions-item>
-            </el-descriptions>
-          </div>
+      <div class="jj-stat ok">
+        <div class="jj-stat-label"><el-icon><Position /></el-icon>今日登录</div>
+        <div class="jj-stat-value">
+          {{ cards.loginToday }}<span class="jj-stat-unit">次</span>
         </div>
+        <div class="jj-stat-foot">失败 {{ cards.loginFailToday }} 次</div>
+      </div>
+      <div class="jj-stat warn">
+        <div class="jj-stat-label"><el-icon><Operation /></el-icon>今日操作</div>
+        <div class="jj-stat-value">
+          {{ cards.opToday }}<span class="jj-stat-unit">次</span>
+        </div>
+        <div class="jj-stat-foot">角色 {{ cards.roleTotal }} 个</div>
+      </div>
+      <div class="jj-stat" :class="dbOk ? '' : 'bad'">
+        <div class="jj-stat-label"><el-icon><Coin /></el-icon>当前计数值</div>
+        <div class="jj-stat-value">
+          {{ cards.counterValue }}<span class="jj-stat-unit">次</span>
+        </div>
+        <div class="jj-stat-foot">
+          记录 {{ cards.counterTotal }} 条 · 数据库 {{ dbOk ? latency + 'ms' : '异常' }}
+        </div>
+      </div>
+    </div>
 
-        <div class="jj-card">
-          <div class="jj-card-head">
-            <div class="jj-card-title">最近记录</div>
-            <el-button text type="primary" size="small" @click="$router.push('/counters')">
-              前往管理
-            </el-button>
+    <div class="grid-2">
+      <div class="jj-card">
+        <div class="jj-card-head">
+          <div class="jj-card-title">
+            近 7 天登录趋势
+            <span class="jj-card-title-sub">成功登录次数</span>
           </div>
-          <div class="jj-card-body">
-            <el-table :data="recent" size="small" empty-text="暂无数据">
-              <el-table-column prop="id" label="ID" width="64" />
-              <el-table-column prop="count" label="计数" width="80" />
-              <el-table-column label="更新时间">
-                <template #default="{ row }">
-                  <span class="jj-mono">{{ fmtTime(row.updatedAt) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-
-            <div class="jj-quick">
-              <el-button type="primary" :loading="acting" @click="quickIncr">
-                <el-icon><Plus /></el-icon>
-                <span style="margin-left: 4px">计数 +1</span>
-              </el-button>
-              <el-button :loading="loading" @click="load">重新加载</el-button>
+          <span class="jj-sub">合计 {{ trendTotal }} 次</span>
+        </div>
+        <div class="jj-card-body">
+          <div class="jj-trend">
+            <div v-for="item in trend" :key="item.day" class="jj-trend-col">
+              <div class="jj-trend-val">{{ item.total }}</div>
+              <div
+                class="jj-trend-bar"
+                :class="{ zero: item.total === 0 }"
+                :style="{ height: barHeight(item.total) }"
+              />
+              <div class="jj-trend-day">{{ item.day.slice(5) }}</div>
             </div>
           </div>
         </div>
       </div>
-    </template>
+
+      <div class="jj-card">
+        <div class="jj-card-head">
+          <div class="jj-card-title">系统状态</div>
+          <el-tag :type="dbOk ? 'success' : 'danger'" size="small" effect="plain">
+            {{ dbOk ? '运行正常' : '数据库异常' }}
+          </el-tag>
+        </div>
+        <div class="jj-card-body">
+          <dl class="jj-kv">
+            <dt>后台版本</dt>
+            <dd>v{{ version }}</dd>
+            <dt>数据库延迟</dt>
+            <dd>{{ dbOk ? latency + ' ms' : dbError }}</dd>
+            <dt>已运行</dt>
+            <dd>{{ uptimeText }}</dd>
+            <dt>服务器时间</dt>
+            <dd>{{ serverTimeText }}</dd>
+            <dt>小程序端</dt>
+            <dd>
+              <el-tag size="small" type="info" effect="plain">待接入</el-tag>
+              <el-button v-if="canViewMini" link type="primary" @click="$router.push('/mini')">
+                查看骨架
+              </el-button>
+            </dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="jj-card">
+        <div class="jj-card-head">
+          <div class="jj-card-title">最近登录</div>
+          <el-button link type="primary" @click="$router.push('/logs')">全部日志</el-button>
+        </div>
+        <div class="jj-card-body">
+          <div v-if="!recentLogins.length" class="jj-empty">暂无登录记录</div>
+          <div v-else class="jj-list">
+            <div v-for="item in recentLogins" :key="item.id" class="jj-list-item">
+              <span class="jj-dot" :class="item.success ? 'ok' : 'bad'" />
+              <span class="jj-strong">{{ item.username }}</span>
+              <span class="jj-sub">{{ item.message }}</span>
+              <span class="meta">{{ item.ip }} · {{ fmt(item.createdAt) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="jj-card">
+        <div class="jj-card-head">
+          <div class="jj-card-title">最近操作</div>
+          <span class="jj-sub">写操作自动留痕</span>
+        </div>
+        <div class="jj-card-body">
+          <div v-if="!recentOps.length" class="jj-empty">暂无操作记录</div>
+          <div v-else class="jj-list">
+            <div v-for="item in recentOps" :key="item.id" class="jj-list-item">
+              <span class="jj-dot" :class="item.success ? 'ok' : 'bad'" />
+              <span class="jj-strong">{{ item.username || '系统' }}</span>
+              <span class="jj-sub">{{ item.action }}</span>
+              <span class="meta">{{ fmt(item.createdAt) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import { auth, canView, canWrite } from '../store/auth'
 
 const reloadTick = inject('jjReloadTick', ref(0))
-const onLine = inject('jjOnline', ref(true))
+const canWriteUsers = computed(() => canWrite('users'))
+const canViewMini = computed(() => canView('mp'))
 
 const loading = ref(false)
-const acting = ref(false)
-const error = ref('')
-const ov = ref(null)
-const recent = ref([])
+const dbOk = ref(true)
+const latency = ref(0)
+const dbError = ref('')
+const version = ref('3.0.0')
+const uptime = ref(0)
+const serverTime = ref('')
+const announcement = ref('')
+const trend = ref([])
+const recentLogins = ref([])
+const recentOps = ref([])
 
-const uptimeText = computed(() => {
-  const s = ov.value?.uptimeSeconds
-  if (s === undefined || s === null) return '-'
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m`
-  if (s < 86400) return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`
-  return `${Math.floor(s / 86400)}d`
+const cards = reactive({
+  userTotal: 0,
+  userActive: 0,
+  userToday: 0,
+  roleTotal: 0,
+  loginToday: 0,
+  loginFailToday: 0,
+  opToday: 0,
+  counterValue: 0,
+  counterTotal: 0
 })
 
-function fmtTime(v) {
+const displayName = computed(() => auth.user?.nickname || auth.user?.username || '管理员')
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6) return '夜深了'
+  if (h < 11) return '早上好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
+
+const todayText = computed(() => {
+  const d = new Date()
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 星期${week}`
+})
+
+const trendTotal = computed(() => trend.value.reduce((s, i) => s + i.total, 0))
+const maxTrend = computed(() => Math.max(1, ...trend.value.map((i) => i.total)))
+
+const uptimeText = computed(() => {
+  const s = uptime.value
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d) return `${d} 天 ${h} 小时`
+  if (h) return `${h} 小时 ${m} 分`
+  return `${m} 分钟`
+})
+
+const serverTimeText = computed(() => {
+  if (!serverTime.value) return '-'
+  const d = new Date(serverTime.value)
+  return d.toLocaleString('zh-CN', { hour12: false })
+})
+
+function barHeight(total) {
+  const ratio = total / maxTrend.value
+  return Math.max(6, Math.round(ratio * 110)) + 'px'
+}
+
+function fmt(v) {
   if (!v) return '-'
   const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return v
   const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
-    const [o, c] = await Promise.all([api.overview(), api.listCounters()])
-    ov.value = o
-    recent.value = (c.list || []).slice(0, 6)
-    onLine.value = true
+    const data = await api.dashboard()
+    Object.assign(cards, data.cards || {})
+    trend.value = data.trend || []
+    recentLogins.value = data.recentLogins || []
+    recentOps.value = data.recentOps || []
+    dbOk.value = !!data.dbOk
+    latency.value = data.dbLatencyMs || 0
+    dbError.value = data.dbError || ''
+    version.value = data.version || version.value
+    uptime.value = data.uptimeSeconds || 0
+    serverTime.value = data.serverTime || ''
+    announcement.value = data.announcement || ''
   } catch (e) {
-    error.value = e.message || '未知错误'
-    onLine.value = false
-  } finally {
-    loading.value = false
-  }
-}
-
-async function quickIncr() {
-  if (!ov.value) return
-  acting.value = true
-  try {
-    const r = await api.incrCounter(ov.value.defaultCounterId || 1, 1)
-    ElMessage.success(`已自增，当前值 ${r.count}`)
-    await load()
-  } catch (e) {
+    dbOk.value = false
     ElMessage.error(e.message)
   } finally {
-    acting.value = false
+    loading.value = false
   }
 }
 
@@ -177,24 +274,23 @@ onMounted(load)
 </script>
 
 <style scoped>
-.jj-grid {
+.announce {
+  margin-bottom: 14px;
+}
+
+.grid-2 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+  margin-bottom: 16px;
 }
 
-.jj-quick {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
+.grid-2 .jj-card + .jj-card {
+  margin-top: 0;
 }
 
-.jj-err {
-  color: #f56c6c;
-}
-
-@media (max-width: 1100px) {
-  .jj-grid {
+@media (max-width: 1000px) {
+  .grid-2 {
     grid-template-columns: 1fr;
   }
 }

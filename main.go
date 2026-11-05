@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+	// 令牌签名密钥必须在提供接口之前就绪
+	service.InitSecurity()
+
 	if err := db.Init(); err != nil {
 		panic(fmt.Sprintf("mysql init failed with %+v", err))
 	}
@@ -18,6 +21,10 @@ func main() {
 	// 接口路由
 	http.HandleFunc("/api/count", service.CounterHandler)
 	http.HandleFunc("/api/admin/", service.AdminAPIHandler)
+	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write([]byte(`{"code":0,"data":{"status":"ok"}}`))
+	})
 
 	// 前端（Vue 构建产物已嵌入二进制），未命中的路径交由 vue-router 处理
 	spa, err := newSPAHandler()
@@ -32,6 +39,6 @@ func main() {
 		port = "80"
 	}
 
-	log.Printf("机匠学徒后台已启动，监听 :%s", port)
+	log.Printf("机匠学徒后台已启动，监听 :%s，版本 %s", port, service.Version())
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
