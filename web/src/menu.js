@@ -5,6 +5,13 @@ export const menuGroups = [
     items: [{ path: '/', title: '数据看板', icon: 'Odometer', module: 'dashboard' }]
   },
   {
+    title: '课程内容',
+    items: [
+      { path: '/majors', title: '专业管理', icon: 'Collection', module: 'majors' },
+      { path: '/courses', title: '课程管理', icon: 'Reading', module: 'courses' }
+    ]
+  },
+  {
     title: '账号与权限',
     items: [
       { path: '/users', title: '账号管理', icon: 'User', module: 'users' },

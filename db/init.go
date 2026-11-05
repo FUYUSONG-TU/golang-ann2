@@ -66,6 +66,14 @@ func Init() error {
 		fmt.Println("seed data error,err=", err.Error())
 		return err
 	}
+	// 初始化专业分类，已存在则跳过
+	if err := seedMajors(); err != nil {
+		fmt.Println("seed majors error,err=", err.Error())
+	}
+	// 为存量内置角色补齐新增模块权限，避免升级后运营账号看不到课程菜单
+	if err := syncBuiltinRolePermissions(); err != nil {
+		fmt.Println("sync role permissions error,err=", err.Error())
+	}
 	// 修复历史版本在保存设置时把文本配置误写成布尔值的问题，失败不阻断启动
 	if err := repairConfigs(); err != nil {
 		fmt.Println("repair configs error,err=", err.Error())
@@ -84,14 +92,17 @@ func migrateTables() error {
 		&model.AdminLoginLog{},
 		&model.AdminOperationLog{},
 		&model.SysConfig{},
+		&model.Major{},
+		&model.Course{},
+		&model.Chapter{},
 	)
 }
 
 // 内置角色
 var builtinRoles = []model.AdminRole{
 	{Code: "super", Name: "超级管理员", Description: "拥有全部权限，可管理账号与角色", Permissions: "*", Builtin: true, Sort: 1},
-	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,counters,mp,logs.view", Builtin: true, Sort: 2},
-	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,counters.view,logs.view", Builtin: true, Sort: 3},
+	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,counters,mp,logs.view", Builtin: true, Sort: 2},
+	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,counters.view,logs.view", Builtin: true, Sort: 3},
 }
 
 // 默认站点配置
@@ -105,6 +116,78 @@ var defaultConfigs = []model.SysConfig{
 	{Key: "maintenance", Value: "false", GroupName: "basic", Label: "维护模式", Type: "switch", Remark: "开启后前台接口返回维护提示"},
 	{Key: "miniProgramName", Value: "机匠学徒", GroupName: "mini", Label: "小程序名称", Type: "text", Remark: "小程序端展示名"},
 	{Key: "miniProgramAppId", Value: "", GroupName: "mini", Label: "AppID", Type: "text", Remark: "小程序 AppID，接入后填写"},
+}
+
+// 默认专业分类，仅在 major 表为空时写入
+var defaultMajors = []model.Major{
+	{Code: "zouxinji", Name: "走心机", Icon: "走", Summary: "走心式车床编程与加工工艺", Sort: 1, Status: 1},
+	{Code: "cnc-lathe", Name: "数控车床", Icon: "车", Summary: "数控车削基础、循环指令与典型零件加工", Sort: 2, Status: 1},
+	{Code: "machining-center", Name: "加工中心", Icon: "铣", Summary: "立式加工中心铣削编程与工艺", Sort: 3, Status: 1},
+}
+
+// seedMajors 初始化专业分类
+func seedMajors() error {
+	var count int64
+	if err := dbInstance.Model(&model.Major{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	now := time.Now()
+	for _, item := range defaultMajors {
+		item.CreatedAt = now
+		item.UpdatedAt = now
+		if err := dbInstance.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	log.Printf("已初始化 %d 个默认专业", len(defaultMajors))
+	return nil
+}
+
+// syncBuiltinRolePermissions 为已存在的内置角色补齐新增模块的默认权限。
+// 只追加角色当前完全没有的权限码，管理员已手工调整过的其它权限不受影响。
+func syncBuiltinRolePermissions() error {
+	defaults := map[string][]string{
+		"operator": {"majors.view", "majors", "courses.view", "courses"},
+		"viewer":   {"majors.view", "courses.view"},
+	}
+	for code, modules := range defaults {
+		var role model.AdminRole
+		if err := dbInstance.Where("code = ? AND builtin = ?", code, true).First(&role).Error; err != nil {
+			continue
+		}
+		has := map[string]bool{}
+		for _, item := range strings.Split(role.Permissions, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				has[item] = true
+			}
+		}
+		if has["*"] {
+			continue
+		}
+		missing := make([]string, 0, len(modules))
+		for _, m := range modules {
+			if !has[m] {
+				missing = append(missing, m)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		merged := strings.TrimSpace(role.Permissions)
+		if merged != "" {
+			merged += ","
+		}
+		merged += strings.Join(missing, ",")
+		if err := dbInstance.Model(&model.AdminRole{}).Where("id = ?", role.Id).
+			Update("permissions", merged).Error; err != nil {
+			return err
+		}
+		log.Printf("已为内置角色 %s 补充权限: %s", code, strings.Join(missing, ","))
+	}
+	return nil
 }
 
 // repairConfigs 修复历史缺陷：保存设置时会把所有文本配置写成 "true"/"false"。

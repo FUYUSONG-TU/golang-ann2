@@ -62,12 +62,12 @@
         <div class="jj-stat-foot">角色 {{ cards.roleTotal }} 个</div>
       </div>
       <div class="jj-stat" :class="dbOk ? '' : 'bad'">
-        <div class="jj-stat-label"><el-icon><Coin /></el-icon>当前计数值</div>
+        <div class="jj-stat-label"><el-icon><Reading /></el-icon>内容规模</div>
         <div class="jj-stat-value">
-          {{ cards.counterValue }}<span class="jj-stat-unit">次</span>
+          {{ cards.courseTotal || 0 }}<span class="jj-stat-unit">门课程</span>
         </div>
         <div class="jj-stat-foot">
-          记录 {{ cards.counterTotal }} 条 · 数据库 {{ dbOk ? latency + 'ms' : '异常' }}
+          {{ cards.majorTotal || 0 }} 个专业 · 已发布 {{ cards.coursePublished || 0 }} 门
         </div>
       </div>
     </div>

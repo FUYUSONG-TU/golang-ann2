@@ -99,6 +99,19 @@ func queryInt(r *http.Request, key string, def int) int {
 	return n
 }
 
+// queryInt64 读取 int64 查询参数
+func queryInt64(r *http.Request, key string, def int64) int64 {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
 // queryIntAll 读取整型查询参数，支持 -1 表示全部
 func queryIntAll(r *http.Request, key string, def int) int {
 	raw := r.URL.Query().Get(key)

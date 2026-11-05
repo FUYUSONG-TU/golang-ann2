@@ -83,6 +83,32 @@ export const api = {
   // 小程序骨架
   mp: () => http.get('/mp/summary'),
 
+  // 课程内容：专业
+  majors: {
+    list: (params) => http.get('/majors', { params }),
+    save: (data) => http.post('/majors/save', data),
+    remove: (id) => http.post('/majors/delete', { id }),
+    sort: (ids) => http.post('/majors/sort', { ids })
+  },
+
+  // 课程内容：课程
+  courses: {
+    list: (params) => http.get('/courses', { params }),
+    detail: (id) => http.get('/courses/detail', { params: { id } }),
+    save: (data) => http.post('/courses/save', data),
+    status: (id, status) => http.post('/courses/status', { id, status }),
+    remove: (id) => http.post('/courses/delete', { id }),
+    sort: (ids) => http.post('/courses/sort', { ids })
+  },
+
+  // 课程内容：章节
+  chapters: {
+    list: (courseId) => http.get('/chapters', { params: { courseId } }),
+    save: (data) => http.post('/chapters/save', data),
+    remove: (id) => http.post('/chapters/delete', { id }),
+    sort: (ids) => http.post('/chapters/sort', { ids })
+  },
+
   // 计数业务
   counters: {
     list: () => http.get('/counters'),

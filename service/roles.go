@@ -34,6 +34,12 @@ var permissionCatalog = []permGroup{
 		{Code: "roles.view", Name: "角色查看", Desc: "查看角色与权限配置"},
 		{Code: "roles", Name: "角色管理", Desc: "新建、编辑、删除角色"},
 	}},
+	{Group: "课程内容", Items: []permItem{
+		{Code: "majors.view", Name: "专业查看", Desc: "查看专业分类"},
+		{Code: "majors", Name: "专业管理", Desc: "新建、编辑、删除专业与调整排序"},
+		{Code: "courses.view", Name: "课程查看", Desc: "查看课程与章节内容"},
+		{Code: "courses", Name: "课程管理", Desc: "新建、编辑、发布、删除课程与章节"},
+	}},
 	{Group: "业务数据", Items: []permItem{
 		{Code: "counters.view", Name: "计数查看", Desc: "查看计数记录"},
 		{Code: "counters", Name: "计数管理", Desc: "新增、修改、删除计数记录"},
@@ -45,7 +51,7 @@ var permissionCatalog = []permGroup{
 		{Code: "logs", Name: "日志管理", Desc: "清空日志"},
 		{Code: "configs.view", Name: "设置查看", Desc: "查看系统设置"},
 		{Code: "configs", Name: "设置管理", Desc: "修改系统设置"},
-		{Code: "system:view", Name: "系统信息", Desc: "查看运行时与数据库状态"},
+		{Code: "system.view", Name: "系统信息", Desc: "查看运行时与数据库状态"},
 	}},
 }
 

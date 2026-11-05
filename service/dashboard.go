@@ -7,6 +7,7 @@ import (
 
 	"wxcloudrun-golang/db"
 	"wxcloudrun-golang/db/dao"
+	"wxcloudrun-golang/db/model"
 )
 
 // appVersion 后台版本号
@@ -54,20 +55,36 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 		}
 	}
 
+	// 内容规模：专业与课程，供看板展示
+	majorTotal := int64(0)
+	if majors, err := dao.ListMajors(dao.MajorQuery{Status: -1}); err == nil {
+		majorTotal = int64(len(majors))
+	}
+	courseTotal, coursePublished := int64(0), int64(0)
+	if counts, err := dao.CountCoursesByStatus(); err == nil {
+		for _, v := range counts {
+			courseTotal += v
+		}
+		coursePublished = counts[model.ContentPublished]
+	}
+
 	latency, pingErr := dbLatency()
 	values, _ := dao.ConfigMap()
 
 	return map[string]interface{}{
 		"cards": map[string]interface{}{
-			"userTotal":      userTotal,
-			"userActive":     userActive,
-			"userToday":      userToday,
-			"roleTotal":      roleTotal,
-			"loginToday":     loginToday,
-			"loginFailToday": loginFailToday,
-			"opToday":        opToday,
-			"counterValue":   counterValue,
-			"counterTotal":   counterTotal,
+			"userTotal":       userTotal,
+			"userActive":      userActive,
+			"userToday":       userToday,
+			"roleTotal":       roleTotal,
+			"loginToday":      loginToday,
+			"loginFailToday":  loginFailToday,
+			"opToday":         opToday,
+			"counterValue":    counterValue,
+			"counterTotal":    counterTotal,
+			"majorTotal":      majorTotal,
+			"courseTotal":     courseTotal,
+			"coursePublished": coursePublished,
 		},
 		"trend":         trend,
 		"recentLogins":  recentLogins,

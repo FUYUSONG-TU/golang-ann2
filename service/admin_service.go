@@ -60,6 +60,26 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/configs/save", "configs", "configs", "保存系统设置", configSave},
 	{http.MethodGet, "/system/info", "system:view", "", "", systemInfo},
 
+	// 课程内容：专业
+	{http.MethodGet, "/majors", "majors:view", "", "", majorList},
+	{http.MethodPost, "/majors/save", "majors", "majors", "保存专业", majorSave},
+	{http.MethodPost, "/majors/delete", "majors", "majors", "删除专业", majorDelete},
+	{http.MethodPost, "/majors/sort", "majors", "majors", "调整专业排序", majorSort},
+
+	// 课程内容：课程
+	{http.MethodGet, "/courses", "courses:view", "", "", courseList},
+	{http.MethodGet, "/courses/detail", "courses:view", "", "", courseDetail},
+	{http.MethodPost, "/courses/save", "courses", "courses", "保存课程", courseSave},
+	{http.MethodPost, "/courses/status", "courses", "courses", "变更课程状态", courseStatus},
+	{http.MethodPost, "/courses/delete", "courses", "courses", "删除课程", courseDelete},
+	{http.MethodPost, "/courses/sort", "courses", "courses", "调整课程排序", courseSort},
+
+	// 课程内容：章节（依附课程，复用 courses 权限码）
+	{http.MethodGet, "/chapters", "courses:view", "", "", chapterList},
+	{http.MethodPost, "/chapters/save", "courses", "courses", "保存章节", chapterSave},
+	{http.MethodPost, "/chapters/delete", "courses", "courses", "删除章节", chapterDelete},
+	{http.MethodPost, "/chapters/sort", "courses", "courses", "调整章节排序", chapterSort},
+
 	// 小程序端（骨架，待接入）
 	{http.MethodGet, "/mp/summary", "mp:view", "", "", mpSummary},
 }

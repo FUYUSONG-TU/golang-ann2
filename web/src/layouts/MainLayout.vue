@@ -139,10 +139,11 @@ const visibleGroups = computed(() =>
     .filter((g) => g.items.length)
 )
 
-const activeMenu = computed(() => (route.path === '/' ? '/' : route.path))
+const activeMenu = computed(() => route.meta.activeMenu || (route.path === '/' ? '/' : route.path))
 const pageTitle = computed(() => route.meta.title || '数据看板')
 const groupTitle = computed(() => {
-  const hit = menuGroups.find((g) => g.items.some((i) => i.path === route.path))
+  const target = activeMenu.value
+  const hit = menuGroups.find((g) => g.items.some((i) => i.path === target))
   return hit ? hit.title : ''
 })
 

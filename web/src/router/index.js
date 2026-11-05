@@ -20,6 +20,24 @@ const routes = [
         meta: { title: '数据看板', module: 'dashboard' }
       },
       {
+        path: 'majors',
+        name: 'majors',
+        component: () => import('../views/MajorView.vue'),
+        meta: { title: '专业管理', module: 'majors' }
+      },
+      {
+        path: 'courses',
+        name: 'courses',
+        component: () => import('../views/CourseView.vue'),
+        meta: { title: '课程管理', module: 'courses' }
+      },
+      {
+        path: 'courses/:id',
+        name: 'course-edit',
+        component: () => import('../views/CourseEditView.vue'),
+        meta: { title: '课程编辑', module: 'courses', activeMenu: '/courses' }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/UserView.vue'),
