@@ -58,7 +58,7 @@
 │   ├── model/               # Counter / AdminUser / AdminRole / 日志 / 配置
 │   └── dao/                 # 数据访问
 ├── web/                     # Vue 前端工程
-│   ├── src/views/           # 16 个页面
+│   ├── src/views/           # 18 个页面
 │   ├── src/layouts/         # 侧边栏 + 顶栏
 │   ├── src/menu.js          # 菜单与权限模块的唯一定义
 │   └── dist/                # 构建产物，不提交
@@ -78,6 +78,9 @@
 | `/courses/:id` | 课程编辑（章节树） | `courses` |
 | `/paths` | 学习路线 | `paths.view` / `paths` |
 | `/paths/:id` | 路线编排（阶段与课程） | `paths` |
+| `/kb` | AI 知识库资料 | `kb.view` / `kb` |
+| `/learners` | 学员与学习记录 | `learners.view` / `learners` |
+| `/learners/:id` | 学员详情（进度与档案） | `learners.view` / `learners` |
 | `/users` | 账号管理 | `users.view` / `users` |
 | `/roles` | 角色权限 | `roles.view` / `roles` |
 | `/counters` | 计数管理 | `counters.view` / `counters` |
@@ -107,6 +110,10 @@
 | `courses` | 课程管理 | 增删改课程、章节与发布 |
 | `paths.view` | 路线查看 | 只看学习路线 |
 | `paths` | 路线管理 | 编排阶段、增删课程、发布路线 |
+| `kb.view` | 资料查看 | 只看知识库资料与解析状态 |
+| `kb` | 资料管理 | 上传、编辑、解析、发布、删除资料 |
+| `learners.view` | 学员查看 | 只看学员档案与学习进度 |
+| `learners` | 学员管理 | 维护档案、启用禁用、删除学员 |
 | `counters.view` | 计数查看 | 只看计数 |
 | `counters` | 计数管理 | 增删改计数 |
 | `mp.view` | 小程序查看 | 看骨架 |
@@ -115,7 +122,7 @@
 | `logs` | 日志管理 | 清空日志 |
 | `configs.view` | 设置查看 | 只看设置 |
 | `configs` | 设置管理 | 修改设置 |
-| `system:view` | 系统信息 | 运行时与数据库状态 |
+| `system.view` | 系统信息 | 运行时与数据库状态 |
 
 约定：`模块` = 该模块的写权限，`模块.view` = 只读权限；`*` 表示全部（超级管理员固定拥有）。
 
@@ -124,8 +131,8 @@
 | 角色 | 编码 | 权限 |
 | --- | --- | --- |
 | 超级管理员 | `super` | `*` |
-| 运营人员 | `operator` | `dashboard, users.view, counters, mp, logs.view` |
-| 只读访客 | `viewer` | `dashboard, counters.view, logs.view` |
+| 运营人员 | `operator` | `dashboard, users.view, majors, courses, paths, kb, learners, counters, mp, logs.view` |
+| 只读访客 | `viewer` | `dashboard, majors.view, courses.view, paths.view, kb.view, learners.view, counters.view, logs.view` |
 
 ---
 
@@ -147,6 +154,7 @@
 | `MYSQL_DATABASE` | 否 | 默认 `golang_demo` |
 | `ADMIN_SECRET` | 建议 | 令牌签名密钥，多副本必须一致 |
 | `ADMIN_INIT_PASSWORD` | 否 | 首次初始化管理员的密码 |
+| `SEED_DEMO_DATA` | 否 | 设为 `false` 时不再写入演示学员（默认仅在 `mp_user` 为空时写入一次） |
 | `PORT` | 否 | 本地调试端口，容器内默认 80 |
 
 ---
@@ -162,6 +170,15 @@
 | `admin_login_log` | 登录日志 |
 | `admin_operation_log` | 操作日志 |
 | `sys_config` | 站点配置（键值对） |
+| `major` | 专业分类 |
+| `course` | 课程（隶属专业，软删除） |
+| `chapter` | 章节（两级：章 → 知识点） |
+| `learning_path` | 学习路线 |
+| `path_stage` | 路线阶段 |
+| `path_item` | 路线内的课程引用（课程不复制，只引用） |
+| `kb_document` | 知识库资料（正文、解析状态、分块数） |
+| `mp_user` | 小程序学员 |
+| `mp_learn_record` | 学习记录（学员 × 课程 的进度） |
 | `Counters` | 模板自带计数表 |
 
 ---
@@ -222,6 +239,65 @@
 | POST | `/counters/incr` | `{id, step}` |
 | POST | `/counters/set` | `{id, count}` |
 | POST | `/counters/delete` | `{id}` |
+
+### 课程内容（专业 / 课程 / 章节）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/majors` | 专业列表，参数 `keyword/status` |
+| POST | `/majors/save` | `{id?, code, name, icon, summary, status, sort}` |
+| POST | `/majors/delete` | `{id}`，有课程时拒绝 |
+| POST | `/majors/sort` | `{ids[]}` |
+| GET | `/courses` | 分页查询，参数 `page/size/majorId/status/difficulty/keyword` |
+| GET | `/courses/detail` | `?id=`，返回课程与章节树 |
+| POST | `/courses/save` | 课程字段，发布前校验章节非空 |
+| POST | `/courses/status` | `{id, status}` |
+| POST | `/courses/delete` | `{id}`，被路线引用时拒绝并列出路线名 |
+| POST | `/courses/sort` | `{ids[]}` |
+| GET | `/chapters` | `?courseId=`，返回两级章节 |
+| POST | `/chapters/save` | `{id?, courseId, parentId, title, summary, duration, status}` |
+| POST | `/chapters/delete` | `{id}`，连同下级知识点 |
+| POST | `/chapters/sort` | `{ids[]}` |
+
+### 学习路线（路线 → 阶段 → 课程引用）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/paths` | 分页查询，参数 `page/size/majorId/status/keyword` |
+| GET | `/paths/detail` | `?id=`，返回阶段树、课程与统计 |
+| POST | `/paths/save` | 路线字段，发布前要求每个阶段都有课程 |
+| POST | `/paths/status` | `{id, status}` |
+| POST | `/paths/delete` | `{id}`，级联清除阶段与课程引用 |
+| POST | `/paths/sort` | `{ids[]}` |
+| POST | `/path-stages/save` | `{id?, pathId, title, summary}` |
+| POST | `/path-stages/delete` | `{id}`，级联清除该阶段课程引用 |
+| POST | `/path-stages/sort` | `{ids[]}` |
+| POST | `/path-items/add` | `{pathId, stageId, courseIds[]}`，自动跳过重复引用 |
+| POST | `/path-items/update` | `{id, required?, unlockRule?}` |
+| POST | `/path-items/remove` | `{id}` |
+| POST | `/path-items/sort` | `{ids[]}` |
+
+### AI 知识库资料
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/kb` | 分页查询，参数 `page/size/category/parseStatus/status/keyword`，返回解析/发布统计 |
+| GET | `/kb/detail` | `?id=`，含正文 |
+| POST | `/kb/save` | 资料字段，保存后自动解析并回写字数与分块数 |
+| POST | `/kb/parse` | `{id}`，重新解析；失败时返回 `parseError` 而不是报错 |
+| POST | `/kb/status` | `{id, status}`，发布要求解析成功且版权已确认 |
+| POST | `/kb/delete` | `{id}`，已发布资料需先下架 |
+
+### 学员与学习记录
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/learners` | 分页查询，参数 `page/size/majorId/level/status/keyword`，附学习汇总 |
+| GET | `/learners/detail` | `?id=`，返回档案、逐门课程记录与统计 |
+| POST | `/learners/save` | `{id?, nickname, phone, majorId, level, status, remark}` |
+| POST | `/learners/status` | `{id, status}`，1 正常 / 0 禁用 |
+| POST | `/learners/delete` | `{id}`，级联删除学习记录 |
+| POST | `/learners/demo-clean` | 清除 openId 以 `demo-` 开头的演示学员 |
 
 ### 模板自带（无需登录）
 

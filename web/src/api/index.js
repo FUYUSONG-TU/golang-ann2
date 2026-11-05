@@ -127,6 +127,26 @@ export const api = {
     sortItems: (ids) => http.post('/path-items/sort', { ids })
   },
 
+  // AI 知识库：资料
+  kb: {
+    list: (params) => http.get('/kb', { params }),
+    detail: (id) => http.get('/kb/detail', { params: { id } }),
+    save: (data) => http.post('/kb/save', data),
+    parse: (id) => http.post('/kb/parse', { id }),
+    status: (id, status) => http.post('/kb/status', { id, status }),
+    remove: (id) => http.post('/kb/delete', { id })
+  },
+
+  // 学员与学习记录
+  learners: {
+    list: (params) => http.get('/learners', { params }),
+    detail: (id) => http.get('/learners/detail', { params: { id } }),
+    save: (data) => http.post('/learners/save', data),
+    status: (id, status) => http.post('/learners/status', { id, status }),
+    remove: (id) => http.post('/learners/delete', { id }),
+    cleanDemo: () => http.post('/learners/demo-clean', {})
+  },
+
   // 计数业务
   counters: {
     list: () => http.get('/counters'),

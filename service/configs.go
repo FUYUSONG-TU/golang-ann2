@@ -17,6 +17,10 @@ func configList(c *adminCtx, r *http.Request) (interface{}, error) {
 	groups := make([]map[string]interface{}, 0)
 	index := map[string]int{}
 	for _, item := range list {
+		// 内部标记类配置（如演示数据初始化标记）不对外展示
+		if item.Type == "hidden" {
+			continue
+		}
 		if _, ok := index[item.GroupName]; !ok {
 			index[item.GroupName] = len(groups)
 			groups = append(groups, map[string]interface{}{

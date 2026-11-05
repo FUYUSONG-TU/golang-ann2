@@ -13,6 +13,14 @@ export const menuGroups = [
     ]
   },
   {
+    title: 'AI 知识库',
+    items: [{ path: '/kb', title: '资料管理', icon: 'Files', module: 'kb' }]
+  },
+  {
+    title: '学员',
+    items: [{ path: '/learners', title: '学员与记录', icon: 'UserFilled', module: 'learners' }]
+  },
+  {
     title: '账号与权限',
     items: [
       { path: '/users', title: '账号管理', icon: 'User', module: 'users' },

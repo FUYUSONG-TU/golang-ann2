@@ -37,7 +37,7 @@
       </template>
     </el-alert>
 
-    <div class="jj-stats" v-loading="loading">
+    <div class="jj-stats stats-6" v-loading="loading">
       <div class="jj-stat">
         <div class="jj-stat-label"><el-icon><User /></el-icon>账号总数</div>
         <div class="jj-stat-value">
@@ -69,6 +69,22 @@
         <div class="jj-stat-foot">
           {{ cards.majorTotal || 0 }} 个专业 · {{ cards.pathTotal || 0 }} 条路线 · 已发布
           {{ cards.coursePublished || 0 }} 门
+        </div>
+      </div>
+      <div class="jj-stat">
+        <div class="jj-stat-label"><el-icon><UserFilled /></el-icon>学员</div>
+        <div class="jj-stat-value">
+          {{ cards.learnerTotal || 0 }}<span class="jj-stat-unit">人</span>
+        </div>
+        <div class="jj-stat-foot">今日活跃 {{ cards.learnerToday || 0 }} 人</div>
+      </div>
+      <div class="jj-stat">
+        <div class="jj-stat-label"><el-icon><Files /></el-icon>知识库</div>
+        <div class="jj-stat-value">
+          {{ cards.kbTotal || 0 }}<span class="jj-stat-unit">份资料</span>
+        </div>
+        <div class="jj-stat-foot">
+          已发布 {{ cards.kbPublished || 0 }} 份 · 解析失败 {{ cards.kbFailed || 0 }} 份
         </div>
       </div>
     </div>
@@ -202,7 +218,12 @@ const cards = reactive({
   pathPublished: 0,
   majorTotal: 0,
   courseTotal: 0,
-  coursePublished: 0
+  coursePublished: 0,
+  kbTotal: 0,
+  kbPublished: 0,
+  kbFailed: 0,
+  learnerTotal: 0,
+  learnerToday: 0
 })
 
 const displayName = computed(() => auth.user?.nickname || auth.user?.username || '管理员')
@@ -293,6 +314,17 @@ onMounted(load)
 
 .grid-2 .jj-card + .jj-card {
   margin-top: 0;
+}
+
+/* 六张概览卡片排成两行三列，避免最后一张单独占位 */
+.stats-6 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1240px) {
+  .stats-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1000px) {

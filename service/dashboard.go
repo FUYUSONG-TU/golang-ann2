@@ -75,6 +75,22 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 		pathPublished = counts[model.ContentPublished]
 	}
 
+	// 知识库资料规模
+	kbTotal, kbPublished, kbFailed := int64(0), int64(0), int64(0)
+	if counts, err := dao.CountKbByStatus(); err == nil {
+		for _, v := range counts {
+			kbTotal += v
+		}
+		kbPublished = counts[model.ContentPublished]
+	}
+	if counts, err := dao.CountKbByParseStatus(); err == nil {
+		kbFailed = counts[model.ParseFailed]
+	}
+
+	// 学员规模
+	learnerTotal, _ := dao.CountMpUsers(-1)
+	learnerToday, _ := dao.CountMpUsersActiveSince(todayStart)
+
 	latency, pingErr := dbLatency()
 	values, _ := dao.ConfigMap()
 
@@ -94,6 +110,11 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 			"coursePublished": coursePublished,
 			"pathTotal":       pathTotal,
 			"pathPublished":   pathPublished,
+			"kbTotal":         kbTotal,
+			"kbPublished":     kbPublished,
+			"kbFailed":        kbFailed,
+			"learnerTotal":    learnerTotal,
+			"learnerToday":    learnerToday,
 		},
 		"trend":         trend,
 		"recentLogins":  recentLogins,

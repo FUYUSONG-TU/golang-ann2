@@ -70,6 +70,10 @@ func Init() error {
 	if err := seedMajors(); err != nil {
 		fmt.Println("seed majors error,err=", err.Error())
 	}
+	// 演示学员数据，仅在学员表为空且未显式关闭时写入，可在后台一键清除
+	if err := seedDemoLearners(); err != nil {
+		fmt.Println("seed demo learners error,err=", err.Error())
+	}
 	// 为存量内置角色补齐新增模块权限，避免升级后运营账号看不到课程菜单
 	if err := syncBuiltinRolePermissions(); err != nil {
 		fmt.Println("sync role permissions error,err=", err.Error())
@@ -98,14 +102,17 @@ func migrateTables() error {
 		&model.LearningPath{},
 		&model.PathStage{},
 		&model.PathItem{},
+		&model.KbDocument{},
+		&model.MpUser{},
+		&model.MpLearnRecord{},
 	)
 }
 
 // 内置角色
 var builtinRoles = []model.AdminRole{
 	{Code: "super", Name: "超级管理员", Description: "拥有全部权限，可管理账号与角色", Permissions: "*", Builtin: true, Sort: 1},
-	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,counters,mp,logs.view", Builtin: true, Sort: 2},
-	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,counters.view,logs.view", Builtin: true, Sort: 3},
+	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,kb.view,kb,learners.view,learners,counters,mp,logs.view", Builtin: true, Sort: 2},
+	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,kb.view,learners.view,counters.view,logs.view", Builtin: true, Sort: 3},
 }
 
 // 默认站点配置
@@ -149,12 +156,133 @@ func seedMajors() error {
 	return nil
 }
 
+// demoLearner 演示学员模板
+type demoLearner struct {
+	name      string
+	phone     string
+	level     int
+	progress  []int
+	dayOffset []int
+}
+
+// seedDemoLearners 写入演示学员与学习记录，让后台在没有小程序数据时也能看到完整页面。
+// 只写一次：写过之后在 sys_config 里留标记，即使清空学员表、重启服务也不会再灌一次。
+func seedDemoLearners() error {
+	if strings.EqualFold(os.Getenv("SEED_DEMO_DATA"), "false") {
+		return nil
+	}
+	var seeded int64
+	if err := dbInstance.Model(&model.SysConfig{}).
+		Where("`key` = ?", "demoLearnerSeeded").Count(&seeded).Error; err != nil {
+		return err
+	}
+	if seeded > 0 {
+		return nil
+	}
+	var count int64
+	if err := dbInstance.Model(&model.MpUser{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		// 已有学员数据，直接记账，避免以后清空后又被重新灌入演示数据
+		return markDemoSeeded()
+	}
+
+	majors := make([]model.Major, 0)
+	if err := dbInstance.Order("sort asc, id asc").Find(&majors).Error; err != nil {
+		return err
+	}
+	courses := make([]model.Course, 0)
+	if err := dbInstance.Order("id asc").Limit(6).Find(&courses).Error; err != nil {
+		return err
+	}
+
+	templates := []demoLearner{
+		{"张一鸣", "13800000001", 2, []int{100, 65, 30}, []int{0, 1, 2}},
+		{"李国强", "13800000002", 1, []int{80, 40}, []int{1, 3}},
+		{"王海涛", "13800000003", 3, []int{100, 100, 75, 55}, []int{0, 0, 2, 5}},
+		{"陈小娟", "13800000004", 1, []int{25}, []int{2}},
+		{"赵鹏", "13800000005", 2, []int{100, 90}, []int{1, 4}},
+		{"周敏", "13800000006", 1, nil, nil},
+	}
+
+	now := time.Now()
+	for index, tpl := range templates {
+		user := &model.MpUser{
+			OpenId:     fmt.Sprintf("demo-learner-%02d", index+1),
+			Nickname:   tpl.name,
+			Phone:      tpl.phone,
+			Level:      tpl.level,
+			Status:     model.MpUserNormal,
+			Remark:     "演示数据，可在学员页一键清理",
+			LoginCount: 3 + index,
+			CreatedAt:  now.AddDate(0, 0, -(20 - index*3)),
+			UpdatedAt:  now.AddDate(0, 0, -(3 + index)),
+		}
+		if len(majors) > 0 {
+			user.MajorId = majors[index%len(majors)].Id
+		}
+		activeAt := now.Add(-time.Duration(6+index*9) * time.Hour)
+		user.LastActiveAt = &activeAt
+		if err := dbInstance.Create(user).Error; err != nil {
+			return err
+		}
+
+		for i, progress := range tpl.progress {
+			if i >= len(courses) {
+				break
+			}
+			studyAt := now.AddDate(0, 0, -tpl.dayOffset[i])
+			status := model.LearnLearning
+			if progress >= 100 {
+				status = model.LearnFinished
+			}
+			record := &model.MpLearnRecord{
+				UserId:       user.Id,
+				CourseId:     courses[i].Id,
+				Progress:     progress,
+				StudySeconds: 600 + progress*90,
+				Status:       status,
+				LastStudyAt:  &studyAt,
+				CreatedAt:    user.CreatedAt,
+				UpdatedAt:    studyAt,
+			}
+			if err := dbInstance.Create(record).Error; err != nil {
+				return err
+			}
+		}
+	}
+	log.Printf("已初始化 %d 名演示学员（可清理）", len(templates))
+	return markDemoSeeded()
+}
+
+// markDemoSeeded 记录演示数据已处理过，避免清理后重启又灌一遍
+func markDemoSeeded() error {
+	var count int64
+	if err := dbInstance.Model(&model.SysConfig{}).
+		Where("`key` = ?", "demoLearnerSeeded").Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return dbInstance.Create(&model.SysConfig{
+		Key:       "demoLearnerSeeded",
+		Value:     "true",
+		GroupName: "system",
+		Label:     "演示学员已初始化",
+		Type:      "hidden",
+		Remark:    "内部标记，不对外展示",
+		UpdatedAt: time.Now(),
+	}).Error
+}
+
 // syncBuiltinRolePermissions 为已存在的内置角色补齐新增模块的默认权限。
 // 只追加角色当前完全没有的权限码，管理员已手工调整过的其它权限不受影响。
 func syncBuiltinRolePermissions() error {
 	defaults := map[string][]string{
-		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths"},
-		"viewer":   {"majors.view", "courses.view", "paths.view"},
+		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths", "kb.view", "kb", "learners.view", "learners"},
+		"viewer":   {"majors.view", "courses.view", "paths.view", "kb.view", "learners.view"},
 	}
 	for code, modules := range defaults {
 		var role model.AdminRole

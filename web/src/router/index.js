@@ -50,6 +50,24 @@ const routes = [
         meta: { title: '路线编排', module: 'paths', activeMenu: '/paths' }
       },
       {
+        path: 'kb',
+        name: 'kb',
+        component: () => import('../views/KbView.vue'),
+        meta: { title: 'AI 资料管理', module: 'kb' }
+      },
+      {
+        path: 'learners',
+        name: 'learners',
+        component: () => import('../views/LearnerView.vue'),
+        meta: { title: '学员与记录', module: 'learners' }
+      },
+      {
+        path: 'learners/:id',
+        name: 'learner-detail',
+        component: () => import('../views/LearnerDetailView.vue'),
+        meta: { title: '学员详情', module: 'learners', activeMenu: '/learners' }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/UserView.vue'),

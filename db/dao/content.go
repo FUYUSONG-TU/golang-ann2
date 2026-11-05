@@ -182,6 +182,16 @@ func FindChapter(id int64) (*model.Chapter, error) {
 	return &item, nil
 }
 
+// ListChaptersByIds 批量查询章节，供学习记录回填章节标题
+func ListChaptersByIds(ids []int64) ([]model.Chapter, error) {
+	list := make([]model.Chapter, 0)
+	if len(ids) == 0 {
+		return list, nil
+	}
+	err := db.Get().Where("id IN ?", ids).Find(&list).Error
+	return list, err
+}
+
 // CreateChapter 新建章节
 func CreateChapter(item *model.Chapter) error {
 	return db.Get().Create(item).Error

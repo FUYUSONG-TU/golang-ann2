@@ -97,6 +97,22 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/path-items/remove", "paths", "paths", "路线移除课程", pathItemRemove},
 	{http.MethodPost, "/path-items/sort", "paths", "paths", "调整路线课程排序", pathItemSort},
 
+	// AI 知识库：资料（分块与检索在 P0-4b/4c 接入）
+	{http.MethodGet, "/kb", "kb:view", "", "", kbList},
+	{http.MethodGet, "/kb/detail", "kb:view", "", "", kbDetail},
+	{http.MethodPost, "/kb/save", "kb", "kb", "保存知识库资料", kbSave},
+	{http.MethodPost, "/kb/parse", "kb", "kb", "重新解析资料", kbParseHandler},
+	{http.MethodPost, "/kb/status", "kb", "kb", "变更资料状态", kbStatus},
+	{http.MethodPost, "/kb/delete", "kb", "kb", "删除知识库资料", kbDelete},
+
+	// 学员与学习记录（数据来自小程序端，后台以查看为主）
+	{http.MethodGet, "/learners", "learners:view", "", "", mpUserList},
+	{http.MethodGet, "/learners/detail", "learners:view", "", "", mpUserDetail},
+	{http.MethodPost, "/learners/save", "learners", "learners", "保存学员档案", mpUserSave},
+	{http.MethodPost, "/learners/status", "learners", "learners", "启用/禁用学员", mpUserStatus},
+	{http.MethodPost, "/learners/delete", "learners", "learners", "删除学员", mpUserDelete},
+	{http.MethodPost, "/learners/demo-clean", "learners", "learners", "清理演示学员", mpDemoClean},
+
 	// 小程序端（骨架，待接入）
 	{http.MethodGet, "/mp/summary", "mp:view", "", "", mpSummary},
 }

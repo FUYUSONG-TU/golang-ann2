@@ -42,6 +42,14 @@ var permissionCatalog = []permGroup{
 		{Code: "paths.view", Name: "路线查看", Desc: "查看学习路线与阶段配置"},
 		{Code: "paths", Name: "路线管理", Desc: "新建、编辑、发布、删除学习路线"},
 	}},
+	{Group: "AI 知识库", Items: []permItem{
+		{Code: "kb.view", Name: "资料查看", Desc: "查看知识库资料与解析状态"},
+		{Code: "kb", Name: "资料管理", Desc: "上传、编辑、解析、发布、删除资料"},
+	}},
+	{Group: "学员", Items: []permItem{
+		{Code: "learners.view", Name: "学员查看", Desc: "查看学员档案与学习进度"},
+		{Code: "learners", Name: "学员管理", Desc: "维护学员档案、启用禁用、删除学员"},
+	}},
 	{Group: "业务数据", Items: []permItem{
 		{Code: "counters.view", Name: "计数查看", Desc: "查看计数记录"},
 		{Code: "counters", Name: "计数管理", Desc: "新增、修改、删除计数记录"},
