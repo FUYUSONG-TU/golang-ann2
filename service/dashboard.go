@@ -60,32 +60,34 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 	if majors, err := dao.ListMajors(dao.MajorQuery{Status: -1}); err == nil {
 		majorTotal = int64(len(majors))
 	}
-	courseTotal, coursePublished := int64(0), int64(0)
+	// 内容规模：同时保留状态明细，看板用它画构成环图与健康度条
+	courseStatus := map[string]int64{}
 	if counts, err := dao.CountCoursesByStatus(); err == nil {
-		for _, v := range counts {
-			courseTotal += v
-		}
-		coursePublished = counts[model.ContentPublished]
+		courseStatus = counts
 	}
-	pathTotal, pathPublished := int64(0), int64(0)
+	pathStatus := map[string]int64{}
 	if counts, err := dao.CountPathsByStatus(); err == nil {
-		for _, v := range counts {
-			pathTotal += v
-		}
-		pathPublished = counts[model.ContentPublished]
+		pathStatus = counts
 	}
+	courseTotal := sumStatus(courseStatus)
+	pathTotal := sumStatus(pathStatus)
+	coursePublished := courseStatus[model.ContentPublished]
+	pathPublished := pathStatus[model.ContentPublished]
 
 	// 知识库资料规模
-	kbTotal, kbPublished, kbFailed := int64(0), int64(0), int64(0)
+	kbStatus := map[string]int64{}
 	if counts, err := dao.CountKbByStatus(); err == nil {
-		for _, v := range counts {
-			kbTotal += v
-		}
-		kbPublished = counts[model.ContentPublished]
+		kbStatus = counts
 	}
+	kbParse := map[string]int64{}
 	if counts, err := dao.CountKbByParseStatus(); err == nil {
-		kbFailed = counts[model.ParseFailed]
+		kbParse = counts
 	}
+	kbTotal := sumStatus(kbStatus)
+	kbPublished := kbStatus[model.ContentPublished]
+	kbFailed := kbParse[model.ParseFailed]
+	kbChunks, _ := dao.CountKbChunks()
+	kbSearchable, _ := dao.CountSearchableDocs()
 
 	// 学员规模
 	learnerTotal, _ := dao.CountMpUsers(-1)
@@ -113,8 +115,16 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 			"kbTotal":         kbTotal,
 			"kbPublished":     kbPublished,
 			"kbFailed":        kbFailed,
+			"kbChunks":        kbChunks,
+			"kbSearchable":    kbSearchable,
 			"learnerTotal":    learnerTotal,
 			"learnerToday":    learnerToday,
+		},
+		"composition": map[string]interface{}{
+			"courses": contentBreakdown(courseStatus, courseTotal),
+			"paths":   contentBreakdown(pathStatus, pathTotal),
+			"kb":      contentBreakdown(kbStatus, kbTotal),
+			"kbParse": parseBreakdown(kbParse, kbTotal),
 		},
 		"trend":         trend,
 		"recentLogins":  recentLogins,
@@ -201,6 +211,48 @@ func mpSummary(c *adminCtx, r *http.Request) (interface{}, error) {
 }
 
 // ---------- 内部辅助 ----------
+
+// sumStatus 汇总状态分布的总数
+func sumStatus(counts map[string]int64) int64 {
+	total := int64(0)
+	for _, v := range counts {
+		total += v
+	}
+	return total
+}
+
+// contentBreakdown 把四态补齐成固定键，前端不必再判空
+func contentBreakdown(counts map[string]int64, total int64) map[string]int64 {
+	out := map[string]int64{
+		model.ContentDraft:     0,
+		model.ContentPending:   0,
+		model.ContentPublished: 0,
+		model.ContentOffline:   0,
+		"total":                total,
+	}
+	for k, v := range counts {
+		out[k] = v
+	}
+	return out
+}
+
+// parseBreakdown 解析状态分布：解析中并入待解析，前端只关心成功/失败/未完成
+func parseBreakdown(counts map[string]int64, total int64) map[string]int64 {
+	out := map[string]int64{
+		model.ParsePending: 0,
+		model.ParseSuccess: 0,
+		model.ParseFailed:  0,
+		"total":            total,
+	}
+	for k, v := range counts {
+		if k == model.ParseRunning {
+			out[model.ParsePending] += v
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
 
 func dbLatency() (int64, error) {
 	start := time.Now()

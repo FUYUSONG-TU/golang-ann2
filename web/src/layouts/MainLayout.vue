@@ -83,7 +83,7 @@
         </div>
       </el-header>
 
-      <el-main class="jj-main">
+      <el-main ref="mainRef" class="jj-main">
         <router-view v-slot="{ Component }">
           <transition name="jj-fade" mode="out-in">
             <component :is="Component" />
@@ -113,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, provide, reactive, ref } from 'vue'
+import { computed, onMounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { menuGroups } from '../menu'
@@ -123,7 +123,8 @@ import { auth, canView, clearSession, patchUser } from '../store/auth'
 const route = useRoute()
 const router = useRouter()
 
-const collapsed = ref(false)
+const mainRef = ref(null)
+const collapsed = ref(localStorage.getItem('jj_sidebar_collapsed') === '1')
 const online = ref(true)
 const reloadTick = ref(0)
 const version = ref('3.0.0')
@@ -172,6 +173,19 @@ const pwdRules = {
     }
   ]
 }
+
+// 折叠状态记住，刷新后保持一致
+watch(collapsed, (v) => {
+  localStorage.setItem('jj_sidebar_collapsed', v ? '1' : '0')
+})
+
+// 切换页面时回到顶部，避免上一页的滚动位置残留
+watch(
+  () => route.path,
+  () => {
+    if (mainRef.value) mainRef.value.scrollTop = 0
+  }
+)
 
 function reload() {
   reloadTick.value += 1
@@ -249,11 +263,13 @@ onMounted(async () => {
 
 /* ---------- 侧边栏 ---------- */
 .jj-aside {
-  background: var(--jj-ink);
+  background: linear-gradient(180deg, #1e2735 0%, #18202c 55%, #141b25 100%);
   display: flex;
   flex-direction: column;
-  transition: width 0.22s ease;
+  transition: width 0.24s var(--jj-ease);
   overflow: hidden;
+  position: relative;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 .jj-brand {
@@ -264,13 +280,14 @@ onMounted(async () => {
   padding: 0 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.14);
 }
 
 .jj-logo {
   width: 30px;
   height: 30px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #f08a4b, #e8722c);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f4a06a, #e8722c 62%, #cf5f1f);
   color: #fff;
   font-size: 16px;
   font-weight: 700;
@@ -278,7 +295,12 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(232, 114, 44, 0.35);
+  box-shadow: 0 4px 12px rgba(232, 114, 44, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.3s var(--jj-ease);
+}
+
+.jj-brand:hover .jj-logo {
+  transform: rotate(-4deg) scale(1.04);
 }
 
 .jj-brand-text {
@@ -304,50 +326,85 @@ onMounted(async () => {
 .jj-menu {
   border-right: none;
   flex: 1;
-  padding: 6px 0 12px;
+  padding: 4px 0 12px;
   overflow-y: auto;
+  background: transparent !important;
+}
+
+.jj-menu::-webkit-scrollbar {
+  width: 0;
 }
 
 .jj-menu-group {
-  padding: 14px 18px 6px;
-  font-size: 10.5px;
-  letter-spacing: 1.4px;
-  color: #5c6a7e;
+  padding: 16px 18px 6px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: #56637a;
   text-transform: uppercase;
+  position: relative;
 }
 
 .jj-menu :deep(.el-menu-item) {
-  height: 42px;
-  line-height: 42px;
-  margin: 2px 8px;
-  border-radius: 6px;
+  height: 40px;
+  line-height: 40px;
+  margin: 1px 8px;
+  border-radius: 8px;
   font-size: 13.5px;
+  position: relative;
+  color: #a8b4c6;
+  transition: background 0.2s var(--jj-ease), color 0.2s var(--jj-ease),
+    padding 0.2s var(--jj-ease);
 }
 
 .jj-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.06) !important;
+  background: rgba(255, 255, 255, 0.055) !important;
+  color: #e6edf6 !important;
 }
 
 .jj-menu :deep(.el-menu-item.is-active) {
-  background: var(--jj-orange) !important;
+  background: linear-gradient(90deg, #ec7b35, #e8722c 70%, #de6a26) !important;
   color: #fff !important;
-  box-shadow: 0 2px 10px rgba(232, 114, 44, 0.32);
+  box-shadow: 0 6px 16px -8px rgba(232, 114, 44, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.jj-menu :deep(.el-menu-item.is-active::before) {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 3px;
+  height: 15px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.92);
+  transform: translateY(-50%);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+.jj-menu :deep(.el-menu-item .el-icon) {
+  transition: transform 0.24s var(--jj-ease);
+}
+
+.jj-menu :deep(.el-menu-item:hover .el-icon) {
+  transform: scale(1.08);
 }
 
 .jj-aside-foot {
   padding: 12px 18px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: #6d7a8d;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .jj-aside-foot .ver {
   margin-left: auto;
   color: #4d5a6c;
+  font-family: 'JetBrains Mono', Consolas, monospace;
 }
 
 .jj-dot {
@@ -372,12 +429,17 @@ onMounted(async () => {
 }
 
 .jj-header {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--jj-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
+  position: relative;
+  z-index: 10;
+  transition: box-shadow 0.3s var(--jj-ease);
 }
 
 .jj-header-left {
@@ -391,11 +453,31 @@ onMounted(async () => {
   font-size: 18px;
   cursor: pointer;
   color: #5c6675;
-  transition: color 0.2s;
+  padding: 5px;
+  border-radius: 7px;
+  transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
 }
 
 .jj-collapse:hover {
   color: var(--jj-orange);
+  background: #fdf3ec;
+  transform: scale(1.04);
+}
+
+.jj-header :deep(.el-breadcrumb__inner) {
+  font-size: 12.5px;
+  color: #93a0b2;
+  font-weight: 400;
+}
+
+.jj-header :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+  color: var(--jj-text);
+  font-weight: 600;
+}
+
+.jj-header :deep(.el-breadcrumb__separator) {
+  color: #cfd6e0;
+  margin: 0 7px;
 }
 
 .jj-header-right {
@@ -409,19 +491,22 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 4px 8px 4px 4px;
-  border-radius: 20px;
-  transition: background 0.2s;
+  padding: 4px 10px 4px 4px;
+  border-radius: 22px;
+  border: 1px solid transparent;
+  transition: background 0.22s var(--jj-ease), border-color 0.22s var(--jj-ease);
 }
 
 .jj-user:hover {
-  background: #f5f6f8;
+  background: #f7f8fa;
+  border-color: #e9ecf1;
 }
 
 .jj-avatar {
-  background: linear-gradient(135deg, #f08a4b, #e8722c);
+  background: linear-gradient(135deg, #f4a06a, #e8722c);
   font-size: 13px;
   font-weight: 600;
+  box-shadow: 0 2px 6px -1px rgba(232, 114, 44, 0.5);
 }
 
 .jj-user-meta {
@@ -433,6 +518,7 @@ onMounted(async () => {
 .jj-user-name {
   font-size: 13px;
   color: #3d4653;
+  font-weight: 500;
 }
 
 .jj-user-role {
@@ -443,12 +529,20 @@ onMounted(async () => {
 .jj-user-arrow {
   font-size: 12px;
   color: #9aa4b2;
+  transition: transform 0.22s ease;
+}
+
+.jj-user:hover .jj-user-arrow {
+  transform: translateY(1px);
 }
 
 /* ---------- 内容区 ---------- */
 .jj-main {
-  background: var(--jj-bg);
+  background:
+    radial-gradient(1200px 400px at 80% -10%, rgba(232, 114, 44, 0.045), transparent 70%),
+    var(--jj-bg);
   padding: 0;
   overflow-y: auto;
+  scroll-behavior: smooth;
 }
 </style>

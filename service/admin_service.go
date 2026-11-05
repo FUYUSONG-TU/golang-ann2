@@ -58,7 +58,7 @@ var adminRoutes = []apiRoute{
 	// 系统设置
 	{http.MethodGet, "/configs", "configs:view", "", "", configList},
 	{http.MethodPost, "/configs/save", "configs", "configs", "保存系统设置", configSave},
-	{http.MethodGet, "/system/info", "system:view", "", "", systemInfo},
+	{http.MethodGet, "/system/info", "system.view", "", "", systemInfo},
 
 	// 课程内容：专业
 	{http.MethodGet, "/majors", "majors:view", "", "", majorList},
