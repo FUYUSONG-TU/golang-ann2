@@ -403,6 +403,68 @@ func aiTestHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	}, nil
 }
 
+// ---------- 不依赖资料的固定回答 ----------
+
+// 寒暄与自我介绍用固定话术，不调模型。
+// 理由有三：不花钱；不会被模型改写语气；这类问题不含业务事实，走检索只会得到
+// 一句「资料里没找到」，学员第一句话就被劝退，会以为整个助手是坏的。
+const (
+	aiAnswerIdentity = "我是这套数控课程的知识助手，回答只依据已发布的课程资料——手册、工艺卡、操作规程这些。\n\n" +
+		"你可以直接问编程指令、工艺参数或操作规范。资料里没写的内容我不会编，会直接告诉你没找到。"
+	aiAnswerGreet = "你好，把问题直接发过来就行，比如「G74 端面切槽循环里 P 和 Q 分别代表什么」。\n\n" +
+		"我只依据已发布的资料作答，资料里没有的会直说没有。"
+	aiAnswerAbility = "我能做的事：\n\n" +
+		"1. 依据资料回答问题，并标出引用的是哪一份、第几段；\n" +
+		"2. 把学员问过的问题沉淀成标准问答，下次同样的问题直接命中，不用再算一遍；\n" +
+		"3. 在「检索调试」里显示一次检索到底命中了哪些分块，方便排查答非所问。\n\n" +
+		"资料里没有的内容我不会编。"
+	aiAnswerThanks = "不客气，还有别的问题尽管问。"
+)
+
+// aiSmallTalk 识别寒暄与自我介绍。
+// 只做整句匹配：像「你好，G74 怎么用」这种带着真问题的句子必须放过去走检索，
+// 否则会把有意义的问题当成打招呼回掉。
+func aiSmallTalk(question string) (string, bool) {
+	text := strings.ToLower(strings.TrimSpace(question))
+	text = strings.Trim(text, " 　\t\r\n，。,.!！?？~～、;；:：")
+	switch text {
+	case "你是谁", "你是谁啊", "你叫什么", "你叫什么名字", "你是什么", "你是ai吗", "你是机器人吗",
+		"介绍一下你自己", "自我介绍", "你是做什么的":
+		return aiAnswerIdentity, true
+	case "你好", "您好", "hi", "hello", "在吗", "在不在", "有人吗":
+		return aiAnswerGreet, true
+	case "你能做什么", "你会什么", "你能干什么", "你有什么功能", "有什么功能", "你能帮我做什么", "怎么用你":
+		return aiAnswerAbility, true
+	case "谢谢", "谢谢你", "感谢", "辛苦了":
+		return aiAnswerThanks, true
+	}
+	return "", false
+}
+
+// aiNoHitAnswer 没命中时要说清三件事：为什么没命中、检索了什么、下一步做什么。
+// 一律回同一句兜底话术，等于把「库是空的」「这题资料里没写」「模型没启用」三种
+// 完全不同的原因混成一句，用户唯一的反应就是不停换问法。
+func aiNoHitAnswer(question string, docs, chunks int64, modelReady bool) (string, string) {
+	if chunks == 0 {
+		// 有资料但没切出分块：多半是解析失败或正文为空，和「一份都没传」是两回事
+		if docs > 0 {
+			return "已发布 " + strconv.FormatInt(docs, 10) + " 份资料，但还没有解析出可检索的正文（0 个分块）。\n\n" +
+				"到「资料管理」检查这几份资料的解析状态，重新解析并发布后再来问。", "kb_empty"
+		}
+		return "知识库现在还是空的（0 份已发布资料），任何问题都没法基于资料回答。\n\n" +
+			"先到「资料管理」把手册、工艺卡或操作规程上传并发布，再回来问。资料里没写的内容我会直说没有，不会编。", "kb_empty"
+	}
+	if !modelReady {
+		return "这个问题在资料里没有找到对应内容（已收录 " + strconv.FormatInt(docs, 10) + " 份资料、" +
+			strconv.FormatInt(chunks, 10) + " 个分块）。\n\n" +
+			"AI 问答目前是关闭的，没法让模型帮着换个角度理解问题——到「AI 配置」打开开关并填写 Key 后再试。", "model_off"
+	}
+	text := "资料库里没有找到与「" + truncate(question, 40) + "」相关的内容。已检索 " +
+		strconv.FormatInt(docs, 10) + " 份已发布资料、" + strconv.FormatInt(chunks, 10) + " 个分块。\n\n"
+	text += "可以换成资料里的原词再问一次（比如把「切槽」说成「端面切槽循环」），或者请管理员把这部分内容补进资料库。"
+	return text, "no_match"
+}
+
 // ---------- 检索 ----------
 
 // aiHit 一条检索命中
@@ -595,10 +657,14 @@ func aiRetrieveHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	}
 	// 顺带把问答库的命中情况一起返回，调试时能看出「为什么这次又调了模型」
 	qaHits := matchQa(req.Query, 3)
+	// 带上知识库规模：命中 0 条时能立刻分辨是「资料里没这条」还是「库根本是空的」
+	docs, _ := dao.CountSearchableDocs()
+	chunks, _ := dao.CountKbChunks()
 	out := map[string]interface{}{
 		"hits": hits, "count": len(hits), "candidates": candidates,
 		"topK": topK, "minScore": minScore,
 		"qaHits": qaHits, "qaThreshold": qaHitThreshold,
+		"kbDocs": docs, "kbChunks": chunks,
 	}
 	if req.Debug {
 		out["terms"] = aiQueryTerms(req.Query)
@@ -622,6 +688,16 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	}
 	if len([]rune(req.Question)) > 500 {
 		return nil, badRequest("问题太长，请控制在 500 字以内")
+	}
+
+	// 寒暄和自我介绍不依赖资料，直接给固定话术：0 token、语气稳定，
+	// 也不会因为知识库还没录资料就先泼一盆「没找到」。
+	if answer, ok := aiSmallTalk(req.Question); ok {
+		return map[string]interface{}{
+			"answer": answer, "model": "", "source": "guide", "reason": "smalltalk",
+			"hitCount": 0, "candidates": 0, "references": []aiHit{},
+			"usage": nil, "latencyMs": 0, "grounded": false,
+		}, nil
 	}
 
 	// 第一步先查问答库：已定稿的答案直接原样返回，不消耗 token，也不会被模型改写。
@@ -650,12 +726,7 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	}
 
 	cfg := loadAiConfig()
-	if !cfg.Enabled {
-		return nil, badRequest("AI 助手还没启用，请先在 AI 配置页打开开关")
-	}
-	if cfg.ApiKey == "" {
-		return nil, badRequest("还没有配置 API Key，请先在 AI 配置页填写")
-	}
+	modelReady := cfg.Enabled && cfg.ApiKey != ""
 
 	topK := req.TopK
 	if topK <= 0 {
@@ -666,18 +737,30 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		minScore = cfg.MinScore
 	}
 
+	// 检索本身不需要模型，所以先检索再判断是否可用：
+	// 知识库空着的时候，报「资料里没找到」是错的，真正原因是压根没有资料。
 	hits, candidates, err := retrieveKb(req.Question, topK, minScore)
 	if err != nil {
 		return nil, serverError("检索失败: " + err.Error())
 	}
 
-	// 没有命中就不调用模型，直接返回兜底话术，省一次 token
+	// 没有命中就不调用模型：没有依据时模型最容易编，而编错的参数会直接进车间。
+	// 但必须把原因说清楚，否则用户只会一遍遍换问法。
 	if len(hits) == 0 {
+		docs, _ := dao.CountSearchableDocs()
+		chunks, _ := dao.CountKbChunks()
+		answer, reason := aiNoHitAnswer(req.Question, docs, chunks, modelReady)
 		return map[string]interface{}{
-			"answer": cfg.RefuseText, "model": cfg.ChatModel, "hitCount": 0,
-			"candidates": candidates, "references": []aiHit{}, "usage": nil, "latencyMs": 0,
-			"grounded": false, "source": "none",
+			"answer": answer, "model": "", "source": "none", "reason": reason,
+			"hitCount": 0, "candidates": candidates, "references": []aiHit{},
+			"usage": nil, "latencyMs": 0, "grounded": false,
+			"kbDocs": docs, "kbChunks": chunks,
 		}, nil
+	}
+
+	// 命中但没有可用的模型：这时候确实有资料，只是组织不成回答，单独提示
+	if !modelReady {
+		return nil, badRequest("这个问题在资料里找到了依据，但 AI 问答还没启用（或没配 Key），先到 AI 配置页打开再问")
 	}
 
 	context := buildAiContext(hits)

@@ -37,9 +37,15 @@
         <el-icon><MagicStick /></el-icon>{{ form.chatModel || '未选择模型' }}
       </span>
       <span class="bar-sep" />
-      <span class="bar-item">
-        <el-icon><Files /></el-icon>可检索 {{ stats.searchable || 0 }} 份 / {{ stats.chunks || 0 }} 块
+      <span class="bar-item" :class="{ warn: !stats.chunks }">
+        <el-icon><WarningFilled v-if="!stats.chunks" /><Files v-else /></el-icon>
+        <template v-if="stats.chunks">可检索 {{ stats.searchable || 0 }} 份 / {{ stats.chunks }} 块</template>
+        <template v-else-if="stats.searchable">资料还没解析出可检索正文</template>
+        <template v-else>知识库还是空的</template>
       </span>
+      <el-button v-if="!stats.chunks && !loading" link type="primary" class="bar-link" @click="$router.push('/kb')">
+        {{ stats.searchable ? '去检查解析' : '去录入资料' }}
+      </el-button>
       <span class="bar-sep" />
       <span class="bar-item" :class="enabled ? 'ok' : 'off'">
         <el-icon><CircleCheck v-if="enabled" /><CircleClose v-else /></el-icon>
@@ -78,11 +84,15 @@
                 <template v-else>{{ msg.content }}</template>
               </div>
 
-              <div v-if="msg.meta" class="msg-meta">
-                <span v-if="msg.source !== 'qa' && msg.meta.hitCount !== undefined">命中 {{ msg.meta.hitCount }} 段</span>
-                <span v-if="msg.source !== 'qa' && msg.meta.latencyMs">耗时 {{ msg.meta.latencyMs }} ms</span>
+              <div v-if="msg.source === 'model' && msg.meta" class="msg-meta">
+                <span v-if="msg.meta.hitCount !== undefined">命中 {{ msg.meta.hitCount }} 段</span>
+                <span v-if="msg.meta.latencyMs">耗时 {{ msg.meta.latencyMs }} ms</span>
                 <span v-if="msg.meta.usage?.total_tokens">token {{ msg.meta.usage.total_tokens }}</span>
-                <span v-if="msg.source !== 'qa' && msg.meta.model">{{ msg.meta.model }}</span>
+                <span v-if="msg.meta.model">{{ msg.meta.model }}</span>
+              </div>
+
+              <div v-if="msg.reason === 'kb_empty' && !msg.pending && !msg.error" class="msg-action">
+                <el-button link type="primary" @click="$router.push('/kb')">去资料管理</el-button>
               </div>
 
               <div v-if="msg.qaId && !msg.error && !msg.pending" class="feedback">
@@ -198,7 +208,10 @@
                 <span v-for="t in probeResult.terms" :key="t" class="term">{{ t }}</span>
               </span>
             </div>
-            <div v-if="!probeResult.hits.length" class="jj-empty probe-empty">
+            <div v-if="!probeResult.hits.length && !probeResult.kbChunks" class="jj-empty probe-empty">
+              知识库里还没有任何分块，检索结果必然是空的。先到「资料管理」上传并解析发布。
+            </div>
+            <div v-else-if="!probeResult.hits.length" class="jj-empty probe-empty">
               没有命中。可能问题里的关键词和资料用词不一致，换个说法，或把资料正文补全。
             </div>
             <div v-for="(hit, hi) in probeResult.hits" :key="hi" class="hit">
@@ -217,13 +230,14 @@
 </template>
 
 <script setup>
-import { inject, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { canWrite } from '../store/auth'
 
 const reloadTick = inject('jjReloadTick', ref(0))
-const canChat = canWrite('ai')
+// 必须用 computed：刷新页面时权限是异步加载的，setup 阶段读一次会永久拿到空权限
+const canChat = computed(() => canWrite('ai'))
 
 const loading = ref(false)
 const sending = ref(false)
@@ -312,6 +326,7 @@ async function send() {
       content: data.answer || '（模型没有返回内容）',
       references: data.references || [],
       source: data.source || 'model',
+      reason: data.reason || '',
       qaId: data.qaId || 0,
       qaHitTotal: data.qaHitTotal || 0,
       feedback: '',
@@ -319,7 +334,7 @@ async function send() {
         hitCount: data.hitCount || 0,
         latencyMs: data.latencyMs || 0,
         usage: data.usage || null,
-        model: data.source === 'qa' ? '知识库' : data.model || ''
+        model: data.model || ''
       }
     })
   } catch (e) {
@@ -404,6 +419,22 @@ onMounted(load)
 
 .bar-item.off {
   color: #d97706;
+}
+
+.bar-item.warn {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.bar-link {
+  font-size: 12.5px;
+  padding: 0;
+  height: auto;
+}
+
+.msg-action {
+  margin-top: 2px;
+  margin-left: 2px;
 }
 
 .bar-sep {
