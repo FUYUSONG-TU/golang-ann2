@@ -58,7 +58,7 @@
 │   ├── model/               # Counter / AdminUser / AdminRole / 日志 / 配置
 │   └── dao/                 # 数据访问
 ├── web/                     # Vue 前端工程
-│   ├── src/views/           # 18 个页面
+│   ├── src/views/           # 20 个页面
 │   ├── src/layouts/         # 侧边栏 + 顶栏
 │   ├── src/menu.js          # 菜单与权限模块的唯一定义
 │   └── dist/                # 构建产物，不提交
@@ -79,6 +79,8 @@
 | `/paths` | 学习路线 | `paths.view` / `paths` |
 | `/paths/:id` | 路线编排（阶段与课程） | `paths` |
 | `/kb` | AI 知识库资料 | `kb.view` / `kb` |
+| `/ai/settings` | AI 助手配置（模型、参数、密钥） | `ai.view` / `ai` |
+| `/ai/chat` | AI 调试台（问答 + 检索调试） | `ai.view` / `ai` |
 | `/learners` | 学员与学习记录 | `learners.view` / `learners` |
 | `/learners/:id` | 学员详情（进度与档案） | `learners.view` / `learners` |
 | `/users` | 账号管理 | `users.view` / `users` |
@@ -112,6 +114,8 @@
 | `paths` | 路线管理 | 编排阶段、增删课程、发布路线 |
 | `kb.view` | 资料查看 | 只看知识库资料与解析状态 |
 | `kb` | 资料管理 | 上传、编辑、解析、发布、删除资料 |
+| `ai.view` | AI 配置查看 | 看模型配置与知识库就绪状态，可用检索调试 |
+| `ai` | AI 配置管理 | 改参数、填密钥、测试连接、发起问答 |
 | `learners.view` | 学员查看 | 只看学员档案与学习进度 |
 | `learners` | 学员管理 | 维护档案、启用禁用、删除学员 |
 | `counters.view` | 计数查看 | 只看计数 |
@@ -131,8 +135,8 @@
 | 角色 | 编码 | 权限 |
 | --- | --- | --- |
 | 超级管理员 | `super` | `*` |
-| 运营人员 | `operator` | `dashboard, users.view, majors, courses, paths, kb, learners, counters, mp, logs.view` |
-| 只读访客 | `viewer` | `dashboard, majors.view, courses.view, paths.view, kb.view, learners.view, counters.view, logs.view` |
+| 运营人员 | `operator` | `dashboard, users.view, majors, courses, paths, kb, ai, learners, counters, mp, logs.view` |
+| 只读访客 | `viewer` | `dashboard, majors.view, courses.view, paths.view, kb.view, ai.view, learners.view, counters.view, logs.view` |
 
 ---
 
@@ -177,6 +181,7 @@
 | `path_stage` | 路线阶段 |
 | `path_item` | 路线内的课程引用（课程不复制，只引用） |
 | `kb_document` | 知识库资料（正文、解析状态、分块数） |
+| `kb_chunk` | 资料分块（检索的最小单位，随解析重建） |
 | `mp_user` | 小程序学员 |
 | `mp_learn_record` | 学习记录（学员 × 课程 的进度） |
 | `Counters` | 模板自带计数表 |
@@ -287,6 +292,19 @@
 | POST | `/kb/parse` | `{id}`，重新解析；失败时返回 `parseError` 而不是报错 |
 | POST | `/kb/status` | `{id, status}`，发布要求解析成功且版权已确认 |
 | POST | `/kb/delete` | `{id}`，已发布资料需先下架 |
+| GET | `/kb/chunks` | `?docId=`，查看该资料切出来的分块，用于排查检索不到的原因 |
+
+### AI 助手
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/ai/configs` | 配置（密钥脱敏）、知识库就绪情况、最近一次连接测试 |
+| POST | `/ai/configs/save` | 白名单字段，数值按范围校验；回传脱敏串表示不改密钥，传空串表示清除 |
+| POST | `/ai/test` | 发一次最小请求验证地址/密钥/模型，失败返回 `ok=false` 而不是报错 |
+| POST | `/ai/retrieve` | `{query, topK, minScore, debug}`，只检索不调用模型，不消耗 token |
+| POST | `/ai/chat` | `{question, topK, minScore}`，检索后带引用回答；无命中直接返回兜底话术 |
+
+配置项存在 `sys_config` 的 `ai` 分组，**不出现在系统设置页**，也不能通过 `/configs/save` 改写。
 
 ### 学员与学习记录
 

@@ -52,3 +52,20 @@ type KbDocument struct {
 
 // TableName 指定表名
 func (KbDocument) TableName() string { return "kb_document" }
+
+// KbChunk 资料分块，是 AI 检索的最小单位。
+// 一份资料解析后会被切成若干块，docTitle 与 category 冗余存储，
+// 这样检索命中后不需要再回表就能展示出处。
+type KbChunk struct {
+	Id        int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	DocId     int64     `gorm:"column:docId;index:idx_chunk_doc" json:"docId"`
+	DocTitle  string    `gorm:"column:docTitle;size:128" json:"docTitle"`
+	Category  string    `gorm:"column:category;size:32" json:"category"`
+	Seq       int       `gorm:"column:seq;default:0" json:"seq"`
+	Content   string    `gorm:"column:content;type:text" json:"content"`
+	CharCount int       `gorm:"column:charCount;default:0" json:"charCount"`
+	CreatedAt time.Time `gorm:"column:createdAt" json:"createdAt"`
+}
+
+// TableName 指定表名
+func (KbChunk) TableName() string { return "kb_chunk" }

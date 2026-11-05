@@ -14,7 +14,11 @@ export const menuGroups = [
   },
   {
     title: 'AI 知识库',
-    items: [{ path: '/kb', title: '资料管理', icon: 'Files', module: 'kb' }]
+    items: [
+      { path: '/kb', title: '资料管理', icon: 'Files', module: 'kb' },
+      { path: '/ai/settings', title: 'AI 配置', icon: 'MagicStick', module: 'ai' },
+      { path: '/ai/chat', title: 'AI 调试台', icon: 'ChatDotRound', module: 'ai' }
+    ]
   },
   {
     title: '学员',

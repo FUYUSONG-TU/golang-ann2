@@ -131,10 +131,21 @@ export const api = {
   kb: {
     list: (params) => http.get('/kb', { params }),
     detail: (id) => http.get('/kb/detail', { params: { id } }),
+    chunks: (docId) => http.get('/kb/chunks', { params: { docId } }),
     save: (data) => http.post('/kb/save', data),
     parse: (id) => http.post('/kb/parse', { id }),
     status: (id, status) => http.post('/kb/status', { id, status }),
     remove: (id) => http.post('/kb/delete', { id })
+  },
+
+  // AI 助手：配置、连通性测试、检索与问答
+  ai: {
+    configs: () => http.get('/ai/configs'),
+    save: (data) => http.post('/ai/configs/save', data),
+    test: () => http.post('/ai/test', {}),
+    retrieve: (data) => http.post('/ai/retrieve', data),
+    // 模型回答可能超过 20 秒，单独放宽超时
+    chat: (data) => http.post('/ai/chat', data, { timeout: 90000 })
   },
 
   // 学员与学习记录

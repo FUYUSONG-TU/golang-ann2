@@ -1,6 +1,10 @@
 package dao
 
 import (
+	"strings"
+
+	"gorm.io/gorm"
+
 	"wxcloudrun-golang/db"
 	"wxcloudrun-golang/db/model"
 )
@@ -158,4 +162,84 @@ func ListKbCategories() ([]string, error) {
 		out = append(out, row.Category)
 	}
 	return out, nil
+}
+
+// ReplaceKbChunks 用新分块整体替换旧分块。
+// 分块是资料的派生数据，重建比逐条比对简单可靠，因此在事务里先删后插。
+func ReplaceKbChunks(docId int64, chunks []model.KbChunk) error {
+	return db.Get().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("docId = ?", docId).Delete(&model.KbChunk{}).Error; err != nil {
+			return err
+		}
+		if len(chunks) == 0 {
+			return nil
+		}
+		// 分批写入，避免一次插入上千行超出单条 SQL 的长度限制
+		for start := 0; start < len(chunks); start += 100 {
+			end := start + 100
+			if end > len(chunks) {
+				end = len(chunks)
+			}
+			if err := tx.Create(chunks[start:end]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// DeleteKbChunksByDoc 删除某份资料的全部分块
+func DeleteKbChunksByDoc(docId int64) error {
+	return db.Get().Where("docId = ?", docId).Delete(&model.KbChunk{}).Error
+}
+
+// ListKbChunks 查询某份资料的分块，按序号升序
+func ListKbChunks(docId int64) ([]model.KbChunk, error) {
+	list := make([]model.KbChunk, 0)
+	err := db.Get().Where("docId = ?", docId).Order("seq asc").Find(&list).Error
+	return list, err
+}
+
+// CountKbChunks 统计全部分块数量
+func CountKbChunks() (int64, error) {
+	var total int64
+	err := db.Get().Model(&model.KbChunk{}).Count(&total).Error
+	return total, err
+}
+
+// SearchKbChunks 按关键词粗召回。
+// 只检索「已发布且解析成功」的资料，避免草稿或解析失败的内容被 AI 引用；
+// 关键词之间是 OR 关系，扩大召回范围，精排交给上层打分。
+func SearchKbChunks(terms []string, limit int) ([]model.KbChunk, error) {
+	list := make([]model.KbChunk, 0)
+	query := db.Get().Table("kb_chunk AS c").
+		Select("c.*").
+		Joins("JOIN kb_document AS d ON d.id = c.docId").
+		Where("d.status = ? AND d.parseStatus = ? AND d.deletedAt IS NULL",
+			model.ContentPublished, model.ParseSuccess)
+
+	if len(terms) > 0 {
+		conds := make([]string, 0, len(terms))
+		args := make([]interface{}, 0, len(terms))
+		for _, term := range terms {
+			conds = append(conds, "c.content LIKE ?")
+			args = append(args, "%"+term+"%")
+		}
+		query = query.Where(strings.Join(conds, " OR "), args...)
+	}
+
+	if limit <= 0 || limit > 2000 {
+		limit = 800
+	}
+	err := query.Order("c.docId asc, c.seq asc").Limit(limit).Find(&list).Error
+	return list, err
+}
+
+// CountSearchableDocs 统计可被检索的资料数（已发布且解析成功）
+func CountSearchableDocs() (int64, error) {
+	var total int64
+	err := db.Get().Model(&model.KbDocument{}).
+		Where("status = ? AND parseStatus = ?", model.ContentPublished, model.ParseSuccess).
+		Count(&total).Error
+	return total, err
 }

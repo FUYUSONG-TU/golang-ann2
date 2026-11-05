@@ -103,6 +103,7 @@ func migrateTables() error {
 		&model.PathStage{},
 		&model.PathItem{},
 		&model.KbDocument{},
+		&model.KbChunk{},
 		&model.MpUser{},
 		&model.MpLearnRecord{},
 	)
@@ -111,8 +112,8 @@ func migrateTables() error {
 // 内置角色
 var builtinRoles = []model.AdminRole{
 	{Code: "super", Name: "超级管理员", Description: "拥有全部权限，可管理账号与角色", Permissions: "*", Builtin: true, Sort: 1},
-	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,kb.view,kb,learners.view,learners,counters,mp,logs.view", Builtin: true, Sort: 2},
-	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,kb.view,learners.view,counters.view,logs.view", Builtin: true, Sort: 3},
+	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,kb.view,kb,ai.view,ai,learners.view,learners,counters,mp,logs.view", Builtin: true, Sort: 2},
+	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,kb.view,ai.view,learners.view,counters.view,logs.view", Builtin: true, Sort: 3},
 }
 
 // 默认站点配置
@@ -126,6 +127,23 @@ var defaultConfigs = []model.SysConfig{
 	{Key: "maintenance", Value: "false", GroupName: "basic", Label: "维护模式", Type: "switch", Remark: "开启后前台接口返回维护提示"},
 	{Key: "miniProgramName", Value: "机匠学徒", GroupName: "mini", Label: "小程序名称", Type: "text", Remark: "小程序端展示名"},
 	{Key: "miniProgramAppId", Value: "", GroupName: "mini", Label: "AppID", Type: "text", Remark: "小程序 AppID，接入后填写"},
+}
+
+// AI 配置默认值。密钥留空，配好之后才能回答。
+// 注意：这一组配置不出现在「系统设置」页，统一在「AI 配置」页维护。
+var defaultAiConfigs = []model.SysConfig{
+	{Key: "aiEnabled", Value: "false", GroupName: "ai", Label: "AI 助手开关", Type: "switch", Remark: "关闭后小程序端与问答接口都不再调用模型"},
+	{Key: "aiProvider", Value: "deepseek", GroupName: "ai", Label: "服务商", Type: "text", Remark: "当前支持所有 OpenAI 兼容接口"},
+	{Key: "aiBaseUrl", Value: "https://api.deepseek.com", GroupName: "ai", Label: "接口地址", Type: "text", Remark: "DeepSeek 官方地址，自建代理可改成自己的域名"},
+	{Key: "aiApiKey", Value: "", GroupName: "ai", Label: "API Key", Type: "secret", Remark: "只保存在数据库，接口返回时脱敏"},
+	{Key: "aiChatModel", Value: "deepseek-chat", GroupName: "ai", Label: "对话模型", Type: "text", Remark: "深度思考用 deepseek-reasoner，速度更快用 deepseek-chat"},
+	{Key: "aiEmbeddingModel", Value: "", GroupName: "ai", Label: "向量模型", Type: "text", Remark: "留空表示暂用关键词检索"},
+	{Key: "aiTemperature", Value: "0.30", GroupName: "ai", Label: "温度", Type: "text", Remark: "0 最稳定，1 以上更发散；工艺类问答建议 0.2 - 0.4"},
+	{Key: "aiMaxTokens", Value: "1200", GroupName: "ai", Label: "最大输出长度", Type: "text", Remark: "单次回答的 token 上限"},
+	{Key: "aiTopK", Value: "5", GroupName: "ai", Label: "检索条数", Type: "text", Remark: "每次提问带几段资料给模型"},
+	{Key: "aiMinScore", Value: "0.15", GroupName: "ai", Label: "最低相关度", Type: "text", Remark: "低于该分数的分块不进入上下文"},
+	{Key: "aiSystemPrompt", Value: "", GroupName: "ai", Label: "系统提示词", Type: "textarea", Remark: "留空使用内置的机匠助手指令"},
+	{Key: "aiRefuseText", Value: "", GroupName: "ai", Label: "无答案话术", Type: "text", Remark: "检索不到内容时的兜底回复"},
 }
 
 // 默认专业分类，仅在 major 表为空时写入
@@ -281,8 +299,8 @@ func markDemoSeeded() error {
 // 只追加角色当前完全没有的权限码，管理员已手工调整过的其它权限不受影响。
 func syncBuiltinRolePermissions() error {
 	defaults := map[string][]string{
-		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths", "kb.view", "kb", "learners.view", "learners"},
-		"viewer":   {"majors.view", "courses.view", "paths.view", "kb.view", "learners.view"},
+		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths", "kb.view", "kb", "ai.view", "ai", "learners.view", "learners"},
+		"viewer":   {"majors.view", "courses.view", "paths.view", "kb.view", "ai.view", "learners.view"},
 	}
 	for code, modules := range defaults {
 		var role model.AdminRole
@@ -367,7 +385,7 @@ func seedData() error {
 		}
 	}
 
-	for _, cfg := range defaultConfigs {
+	for _, cfg := range append(append([]model.SysConfig{}, defaultConfigs...), defaultAiConfigs...) {
 		var count int64
 		if err := dbInstance.Model(&model.SysConfig{}).Where("`key` = ?", cfg.Key).Count(&count).Error; err != nil {
 			return err

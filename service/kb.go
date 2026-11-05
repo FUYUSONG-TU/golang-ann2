@@ -1,7 +1,6 @@
 package service
 
 import (
-	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -10,8 +9,11 @@ import (
 	"wxcloudrun-golang/db/model"
 )
 
-// 分块策略：每块约 500 字，与后续向量化时使用的窗口保持一致
-const kbChunkSize = 500
+// 分块策略：每块约 500 字，尾块过短时并入上一块，避免出现只有一句话的碎片
+const (
+	kbChunkSize = 500
+	kbChunkMin  = 80
+)
 
 // 单份资料正文上限，避免一次写入几十兆文本拖垮数据库
 const kbContentLimit = 500000
@@ -296,10 +298,20 @@ func runKbParse(id int64) error {
 	}
 
 	chars := len([]rune(content))
+	chunks := buildKbChunks(item.Id, item.Title, item.Category, content)
+	if err := dao.ReplaceKbChunks(item.Id, chunks); err != nil {
+		// 分块写不进库就不能算解析成功，否则检索永远是空的
+		fields["parseStatus"] = model.ParseFailed
+		fields["parseError"] = "分块写入失败: " + truncate(err.Error(), 180)
+		fields["charCount"] = chars
+		fields["chunkCount"] = 0
+		fields["parsedAt"] = time.Now()
+		return dao.UpdateKbDocumentFields(id, fields)
+	}
 	fields["parseStatus"] = model.ParseSuccess
 	fields["parseError"] = ""
 	fields["charCount"] = chars
-	fields["chunkCount"] = int(math.Ceil(float64(chars) / float64(kbChunkSize)))
+	fields["chunkCount"] = len(chunks)
 	fields["parsedAt"] = time.Now()
 	return dao.UpdateKbDocumentFields(id, fields)
 }
@@ -361,10 +373,27 @@ func kbDelete(c *adminCtx, r *http.Request) (interface{}, error) {
 	if item.Status == model.ContentPublished {
 		return nil, badRequest("已发布的资料先下架再删除，避免检索结果突然空掉")
 	}
+	// 分块是资料的派生数据，资料删除后必须一起清掉，否则会留下检索不到的孤儿块
+	if err := dao.DeleteKbChunksByDoc(req.Id); err != nil {
+		return nil, serverError("清理分块失败: " + err.Error())
+	}
 	if err := dao.DeleteKbDocument(req.Id); err != nil {
 		return nil, serverError("删除失败: " + err.Error())
 	}
 	return map[string]interface{}{"id": req.Id}, nil
+}
+
+// kbChunks 查看某份资料的分块结果，用于排查「资料在库里但检索不到」的问题
+func kbChunks(c *adminCtx, r *http.Request) (interface{}, error) {
+	docId := queryInt64(r, "docId", 0)
+	if docId <= 0 {
+		return nil, badRequest("缺少资料 id")
+	}
+	list, err := dao.ListKbChunks(docId)
+	if err != nil {
+		return nil, serverError("查询分块失败: " + err.Error())
+	}
+	return map[string]interface{}{"list": list, "total": len(list)}, nil
 }
 
 // kbParseText 解析状态中文文案
@@ -394,4 +423,103 @@ func mergeCategories(used []string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+// buildKbChunks 把正文切成检索用的分块。
+// 先按行（自然段）聚合到 500 字以内，超长段落再按句号拆开，
+// 这样一块里尽量保持语义完整，而不是从句子中间截断。
+func buildKbChunks(docId int64, title, category, content string) []model.KbChunk {
+	pieces := packKbParagraphs(content)
+	now := time.Now()
+	chunks := make([]model.KbChunk, 0, len(pieces))
+	for index, piece := range pieces {
+		chunks = append(chunks, model.KbChunk{
+			DocId:     docId,
+			DocTitle:  title,
+			Category:  category,
+			Seq:       index + 1,
+			Content:   piece,
+			CharCount: len([]rune(piece)),
+			CreatedAt: now,
+		})
+	}
+	return chunks
+}
+
+// packKbParagraphs 按段落聚合成不超过 kbChunkSize 的文本块
+func packKbParagraphs(content string) []string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	out := make([]string, 0)
+	var buf strings.Builder
+	bufLen := 0
+	flush := func() {
+		text := strings.TrimSpace(buf.String())
+		if text != "" {
+			out = append(out, text)
+		}
+		buf.Reset()
+		bufLen = 0
+	}
+
+	for _, paragraph := range strings.Split(content, "\n") {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		for _, piece := range splitLongKbParagraph(paragraph) {
+			length := len([]rune(piece))
+			if bufLen > 0 && bufLen+length > kbChunkSize {
+				flush()
+			}
+			buf.WriteString(piece)
+			buf.WriteString("\n")
+			bufLen += length
+		}
+	}
+	flush()
+
+	// 尾块太短（如只剩一句）就并进上一块，减少无意义的碎片
+	if len(out) > 1 && len([]rune(out[len(out)-1])) < kbChunkMin {
+		last := out[len(out)-1]
+		out = out[:len(out)-1]
+		out[len(out)-1] = out[len(out)-1] + "\n" + last
+	}
+	return out
+}
+
+// splitLongKbParagraph 把超长段落按句末标点切开；没有标点时按两倍窗口强制切分
+func splitLongKbParagraph(paragraph string) []string {
+	runes := []rune(paragraph)
+	if len(runes) <= kbChunkSize {
+		return []string{paragraph}
+	}
+	out := make([]string, 0, len(runes)/kbChunkSize+1)
+	buf := make([]rune, 0, kbChunkSize+32)
+	for _, r := range runes {
+		buf = append(buf, r)
+		if len(buf) >= kbChunkSize && isKbSentenceEnd(r) {
+			out = append(out, string(buf))
+			buf = buf[:0]
+			continue
+		}
+		if len(buf) >= kbChunkSize*2 {
+			out = append(out, string(buf))
+			buf = buf[:0]
+		}
+	}
+	if len(buf) > 0 {
+		out = append(out, string(buf))
+	}
+	return out
+}
+
+// isKbSentenceEnd 判断是否句末标点
+func isKbSentenceEnd(r rune) bool {
+	switch r {
+	case '。', '！', '？', '；', '…', '.', '!', '?', ';':
+		return true
+	}
+	return false
 }

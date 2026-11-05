@@ -100,10 +100,18 @@ var adminRoutes = []apiRoute{
 	// AI 知识库：资料（分块与检索在 P0-4b/4c 接入）
 	{http.MethodGet, "/kb", "kb:view", "", "", kbList},
 	{http.MethodGet, "/kb/detail", "kb:view", "", "", kbDetail},
+	{http.MethodGet, "/kb/chunks", "kb:view", "", "", kbChunks},
 	{http.MethodPost, "/kb/save", "kb", "kb", "保存知识库资料", kbSave},
 	{http.MethodPost, "/kb/parse", "kb", "kb", "重新解析资料", kbParseHandler},
 	{http.MethodPost, "/kb/status", "kb", "kb", "变更资料状态", kbStatus},
 	{http.MethodPost, "/kb/delete", "kb", "kb", "删除知识库资料", kbDelete},
+
+	// AI 助手：模型配置、连通性测试、检索与问答调试
+	{http.MethodGet, "/ai/configs", "ai:view", "", "", aiConfigView},
+	{http.MethodPost, "/ai/configs/save", "ai", "ai", "保存 AI 配置", aiConfigSave},
+	{http.MethodPost, "/ai/test", "ai", "ai", "测试 AI 连接", aiTestHandler},
+	{http.MethodPost, "/ai/retrieve", "ai:view", "", "", aiRetrieveHandler},
+	{http.MethodPost, "/ai/chat", "ai", "ai", "AI 问答调试", aiChatHandler},
 
 	// 学员与学习记录（数据来自小程序端，后台以查看为主）
 	{http.MethodGet, "/learners", "learners:view", "", "", mpUserList},

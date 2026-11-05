@@ -21,6 +21,10 @@ func configList(c *adminCtx, r *http.Request) (interface{}, error) {
 		if item.Type == "hidden" {
 			continue
 		}
+		// AI 配置有独立页面，且含密钥，不混进系统设置页
+		if item.GroupName == aiGroup {
+			continue
+		}
 		if _, ok := index[item.GroupName]; !ok {
 			index[item.GroupName] = len(groups)
 			groups = append(groups, map[string]interface{}{
@@ -50,10 +54,14 @@ func configSave(c *adminCtx, r *http.Request) (interface{}, error) {
 		return nil, badRequest("没有需要保存的配置项")
 	}
 
-	// 先取现有配置的类型，用于规范化与防止写入未知 key
+	// 先取现有配置的类型，用于规范化与防止写入未知 key；
+	// AI 分组的键只能走 /ai/configs/save，这里排除掉，避免绕过密钥脱敏逻辑
 	known := map[string]string{}
 	if list, err := dao.ListConfigs(); err == nil {
 		for _, item := range list {
+			if item.GroupName == aiGroup {
+				continue
+			}
 			known[item.Key] = item.Type
 		}
 	}

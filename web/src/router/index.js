@@ -56,6 +56,18 @@ const routes = [
         meta: { title: 'AI 资料管理', module: 'kb' }
       },
       {
+        path: 'ai/settings',
+        name: 'ai-settings',
+        component: () => import('../views/AiSettingView.vue'),
+        meta: { title: 'AI 配置', module: 'ai', activeMenu: '/ai/settings' }
+      },
+      {
+        path: 'ai/chat',
+        name: 'ai-chat',
+        component: () => import('../views/AiChatView.vue'),
+        meta: { title: 'AI 调试台', module: 'ai', activeMenu: '/ai/chat' }
+      },
+      {
         path: 'learners',
         name: 'learners',
         component: () => import('../views/LearnerView.vue'),
