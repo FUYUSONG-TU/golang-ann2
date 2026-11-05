@@ -18,13 +18,16 @@
     <el-alert
       v-if="!loading && !enabled"
       class="tip-alert"
-      type="warning"
+      type="info"
       :closable="false"
       show-icon
-      title="AI 助手未启用"
+      title="模型问答还没启用"
     >
       <template #default>
-        <span>到「AI 配置」打开开关并填写 API Key 后，这里才能拿到回答。</span>
+        <span>
+          开关关闭时不会调用模型，但已经定稿的问答对仍然直接命中——这部分不需要 API Key。
+          要让它能回答新问题，再去填一下 Key。
+        </span>
         <el-button link type="primary" @click="$router.push('/ai/settings')">去配置</el-button>
       </template>
     </el-alert>
@@ -40,7 +43,7 @@
       <span class="bar-sep" />
       <span class="bar-item" :class="enabled ? 'ok' : 'off'">
         <el-icon><CircleCheck v-if="enabled" /><CircleClose v-else /></el-icon>
-        {{ enabled ? '已启用' : '未启用' }}
+        {{ enabled ? '模型已启用' : '模型未启用' }}
       </span>
       <span class="bar-spacer" />
       <span class="bar-hint">Enter 发送 · Shift + Enter 换行</span>
@@ -62,6 +65,12 @@
           <div v-for="(msg, index) in messages" :key="index" class="msg" :class="msg.role">
             <div class="avatar">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
             <div class="msg-main">
+              <div v-if="msg.source && !msg.pending" class="src-badge" :class="msg.source">
+                <template v-if="msg.source === 'qa'">
+                  知识库直出 · 未调用模型<template v-if="msg.qaHitTotal"> · 第 {{ msg.qaHitTotal }} 次命中</template>
+                </template>
+                <template v-else-if="msg.source === 'model'">模型生成 · 已沉淀为待审核问答</template>
+              </div>
               <div class="bubble" :class="{ error: msg.error }">
                 <template v-if="msg.role === 'assistant' && msg.pending">
                   <span class="dot" /><span class="dot" /><span class="dot" />
@@ -70,10 +79,21 @@
               </div>
 
               <div v-if="msg.meta" class="msg-meta">
-                <span v-if="msg.meta.hitCount !== undefined">命中 {{ msg.meta.hitCount }} 段</span>
-                <span v-if="msg.meta.latencyMs">耗时 {{ msg.meta.latencyMs }} ms</span>
+                <span v-if="msg.source !== 'qa' && msg.meta.hitCount !== undefined">命中 {{ msg.meta.hitCount }} 段</span>
+                <span v-if="msg.source !== 'qa' && msg.meta.latencyMs">耗时 {{ msg.meta.latencyMs }} ms</span>
                 <span v-if="msg.meta.usage?.total_tokens">token {{ msg.meta.usage.total_tokens }}</span>
-                <span v-if="msg.meta.model">{{ msg.meta.model }}</span>
+                <span v-if="msg.source !== 'qa' && msg.meta.model">{{ msg.meta.model }}</span>
+              </div>
+
+              <div v-if="msg.qaId && !msg.error && !msg.pending" class="feedback">
+                <template v-if="msg.feedback">
+                  <span class="fb-done">{{ msg.feedback === 'up' ? '已标记为有用' : '已标记为没用，会转人工复核' }}</span>
+                </template>
+                <template v-else>
+                  <span class="fb-label">这个回答准吗</span>
+                  <button class="fb-btn up" @click="feedback(msg, true)">有用</button>
+                  <button class="fb-btn down" @click="feedback(msg, false)">没用</button>
+                </template>
               </div>
 
               <div v-if="msg.references?.length" class="refs">
@@ -111,7 +131,7 @@
           />
           <div class="input-foot">
             <span class="jj-sub">
-              {{ canChat ? '回答由模型生成，请结合资料核对关键参数。' : '当前账号没有调用权限，只能使用右侧检索调试。' }}
+              {{ canChat ? '已定稿的问题直接命中问答库；新问题才调用模型，答完自动进候选池。' : '当前账号没有调用权限，只能使用右侧检索调试。' }}
             </span>
             <el-button type="primary" :loading="sending" :disabled="!canChat || !question.trim()" @click="send">
               <el-icon><Promotion /></el-icon>发送
@@ -151,6 +171,27 @@
           </el-button>
 
           <div v-if="probeResult" class="probe-result">
+            <div class="qa-probe">
+              <div class="qa-probe-head">
+                问答库
+                <span v-if="probeResult.qaHits?.length" class="qa-probe-state hit">
+                  命中 {{ probeResult.qaHits.length }} 条
+                </span>
+                <span v-else class="qa-probe-state miss">未命中</span>
+                <span class="qa-probe-th">阈值 {{ ((probeResult.qaThreshold || 0.5) * 100).toFixed(0) }}%</span>
+              </div>
+              <div v-for="hit in probeResult.qaHits || []" :key="hit.id" class="qa-probe-item">
+                <div class="qa-probe-q">
+                  <span>{{ hit.question }}</span>
+                  <b>{{ (hit.score * 100).toFixed(0) }}%</b>
+                </div>
+                <div class="qa-probe-meta">已命中 {{ hit.hitCount }} 次 · 命中后直接返回，不调模型</div>
+              </div>
+              <div v-if="!probeResult.qaHits?.length" class="qa-probe-tip">
+                问答库没有命中，这次会走文档检索 + 模型作答，答完自动进候选池。
+              </div>
+            </div>
+
             <div class="probe-summary">
               候选 {{ probeResult.candidates }} 块 · 命中 {{ probeResult.count }} 块
               <span v-if="probeResult.terms?.length" class="terms">
@@ -270,11 +311,15 @@ async function send() {
       pending: false,
       content: data.answer || '（模型没有返回内容）',
       references: data.references || [],
+      source: data.source || 'model',
+      qaId: data.qaId || 0,
+      qaHitTotal: data.qaHitTotal || 0,
+      feedback: '',
       meta: {
         hitCount: data.hitCount || 0,
         latencyMs: data.latencyMs || 0,
         usage: data.usage || null,
-        model: data.model || ''
+        model: data.source === 'qa' ? '知识库' : data.model || ''
       }
     })
   } catch (e) {
@@ -284,6 +329,21 @@ async function send() {
     sending.value = false
     messages.value = [...messages.value]
     scrollToBottom()
+  }
+}
+
+async function feedback(msg, helpful) {
+  if (!msg.qaId || msg.feedback) return
+  try {
+    const data = await api.qa.feedback(msg.qaId, helpful)
+    msg.feedback = helpful ? 'up' : 'down'
+    if (data.autoOffline) {
+      ElMessage.warning('已记录。这条答案差评过多，已自动下架，请到「问答沉淀」复核')
+    } else {
+      ElMessage.success(helpful ? '已记录，谢谢' : '已记录，会转人工复核')
+    }
+  } catch (e) {
+    ElMessage.error(e.message)
   }
 }
 
@@ -514,6 +574,141 @@ onMounted(load)
   gap: 10px;
   flex-wrap: wrap;
   font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.src-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.src-badge.qa {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.09);
+  border: 1px solid rgba(22, 163, 74, 0.2);
+}
+
+.src-badge.model {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.07);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+}
+
+.feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.fb-label {
+  color: #94a3b8;
+}
+
+.fb-btn {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #fff;
+  border-radius: 7px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.fb-btn.up:hover {
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.5);
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.fb-btn.down:hover {
+  color: #d43b3b;
+  border-color: rgba(212, 59, 59, 0.5);
+  background: rgba(212, 59, 59, 0.06);
+}
+
+.fb-done {
+  color: #94a3b8;
+}
+
+.qa-probe {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(148, 163, 184, 0.05);
+}
+
+.qa-probe-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.qa-probe-state.hit {
+  color: #15803d;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.qa-probe-state.miss {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 400;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.qa-probe-th {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.qa-probe-item + .qa-probe-item {
+  margin-top: 8px;
+}
+
+.qa-probe-q {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #1f2836;
+}
+
+.qa-probe-q span {
+  flex: 1;
+  min-width: 0;
+}
+
+.qa-probe-q b {
+  color: #15803d;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-probe-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.qa-probe-tip {
+  font-size: 11.5px;
+  line-height: 1.7;
   color: #94a3b8;
 }
 

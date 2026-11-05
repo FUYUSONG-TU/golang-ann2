@@ -56,6 +56,12 @@ const routes = [
         meta: { title: 'AI 资料管理', module: 'kb' }
       },
       {
+        path: 'qa',
+        name: 'qa',
+        component: () => import('../views/QaView.vue'),
+        meta: { title: '问答沉淀', module: 'qa' }
+      },
+      {
         path: 'ai/settings',
         name: 'ai-settings',
         component: () => import('../views/AiSettingView.vue'),

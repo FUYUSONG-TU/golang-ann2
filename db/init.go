@@ -104,6 +104,7 @@ func migrateTables() error {
 		&model.PathItem{},
 		&model.KbDocument{},
 		&model.KbChunk{},
+		&model.KbQa{},
 		&model.MpUser{},
 		&model.MpLearnRecord{},
 	)
@@ -112,8 +113,8 @@ func migrateTables() error {
 // 内置角色
 var builtinRoles = []model.AdminRole{
 	{Code: "super", Name: "超级管理员", Description: "拥有全部权限，可管理账号与角色", Permissions: "*", Builtin: true, Sort: 1},
-	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,kb.view,kb,ai.view,ai,learners.view,learners,counters,mp,logs.view", Builtin: true, Sort: 2},
-	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,kb.view,ai.view,learners.view,counters.view,logs.view", Builtin: true, Sort: 3},
+	{Code: "operator", Name: "运营人员", Description: "日常数据与小程序内容维护，不能管理账号权限", Permissions: "dashboard,users.view,majors.view,majors,courses.view,courses,paths.view,paths,kb.view,kb,qa.view,qa,ai.view,ai,learners.view,learners,counters,mp,logs.view", Builtin: true, Sort: 2},
+	{Code: "viewer", Name: "只读访客", Description: "仅可查看数据，所有写操作被拒绝", Permissions: "dashboard,majors.view,courses.view,paths.view,kb.view,qa.view,ai.view,learners.view,counters.view,logs.view", Builtin: true, Sort: 3},
 }
 
 // 默认站点配置
@@ -299,8 +300,8 @@ func markDemoSeeded() error {
 // 只追加角色当前完全没有的权限码，管理员已手工调整过的其它权限不受影响。
 func syncBuiltinRolePermissions() error {
 	defaults := map[string][]string{
-		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths", "kb.view", "kb", "ai.view", "ai", "learners.view", "learners"},
-		"viewer":   {"majors.view", "courses.view", "paths.view", "kb.view", "ai.view", "learners.view"},
+		"operator": {"majors.view", "majors", "courses.view", "courses", "paths.view", "paths", "kb.view", "kb", "qa.view", "qa", "ai.view", "ai", "learners.view", "learners"},
+		"viewer":   {"majors.view", "courses.view", "paths.view", "kb.view", "qa.view", "ai.view", "learners.view"},
 	}
 	for code, modules := range defaults {
 		var role model.AdminRole

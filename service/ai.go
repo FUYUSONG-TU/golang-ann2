@@ -593,9 +593,12 @@ func aiRetrieveHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	if err != nil {
 		return nil, serverError("检索失败: " + err.Error())
 	}
+	// 顺带把问答库的命中情况一起返回，调试时能看出「为什么这次又调了模型」
+	qaHits := matchQa(req.Query, 3)
 	out := map[string]interface{}{
 		"hits": hits, "count": len(hits), "candidates": candidates,
 		"topK": topK, "minScore": minScore,
+		"qaHits": qaHits, "qaThreshold": qaHitThreshold,
 	}
 	if req.Debug {
 		out["terms"] = aiQueryTerms(req.Query)
@@ -621,6 +624,31 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		return nil, badRequest("问题太长，请控制在 500 字以内")
 	}
 
+	// 第一步先查问答库：已定稿的答案直接原样返回，不消耗 token，也不会被模型改写。
+	// 这条路径不依赖模型，所以放在开关校验之前——即使 AI 关闭或没配 Key，
+	// 沉淀好的答案也应该继续服务学员，这是知识库和模型解耦的意义。
+	// 同一个问题问第二遍，成本从一次模型调用降到一次查询。
+	if qaHits := matchQa(req.Question, 3); len(qaHits) > 0 {
+		top := qaHits[0]
+		_ = dao.IncrKbQaCounter(top.Id, "hitCount", 1)
+		refs := parseQaRefs(top.Refs)
+		return map[string]interface{}{
+			"answer":     top.Answer,
+			"model":      "问答沉淀",
+			"source":     "qa",
+			"qaId":       top.Id,
+			"qaQuestion": top.Question,
+			"qaScore":    top.Score,
+			"qaHitTotal": top.HitCount + 1,
+			"hitCount":   len(refs),
+			"candidates": len(qaHits),
+			"references": refs,
+			"usage":      nil,
+			"latencyMs":  0,
+			"grounded":   true,
+		}, nil
+	}
+
 	cfg := loadAiConfig()
 	if !cfg.Enabled {
 		return nil, badRequest("AI 助手还没启用，请先在 AI 配置页打开开关")
@@ -637,6 +665,7 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	if minScore <= 0 {
 		minScore = cfg.MinScore
 	}
+
 	hits, candidates, err := retrieveKb(req.Question, topK, minScore)
 	if err != nil {
 		return nil, serverError("检索失败: " + err.Error())
@@ -647,7 +676,7 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		return map[string]interface{}{
 			"answer": cfg.RefuseText, "model": cfg.ChatModel, "hitCount": 0,
 			"candidates": candidates, "references": []aiHit{}, "usage": nil, "latencyMs": 0,
-			"grounded": false,
+			"grounded": false, "source": "none",
 		}, nil
 	}
 
@@ -677,9 +706,16 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		answer = cfg.RefuseText
 	}
 
+	// 答完立刻沉淀成候选问答对。有出处的答案才有资格进池子，
+	// 进池后还要人工确认一次才会参与「直接命中」，避免错答案被反复引用。
+	// 沉淀失败不影响本次回答，只记日志。
+	qaId := collectQaCandidate(req.Question, answer, hits)
+
 	return map[string]interface{}{
 		"answer":     answer,
 		"model":      result.Model,
+		"source":     "model",
+		"qaId":       qaId,
 		"hitCount":   len(hits),
 		"candidates": candidates,
 		"references": hits,

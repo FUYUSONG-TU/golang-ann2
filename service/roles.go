@@ -45,6 +45,8 @@ var permissionCatalog = []permGroup{
 	{Group: "AI 知识库", Items: []permItem{
 		{Code: "kb.view", Name: "资料查看", Desc: "查看知识库资料与解析状态"},
 		{Code: "kb", Name: "资料管理", Desc: "上传、编辑、解析、发布、删除资料"},
+		{Code: "qa.view", Name: "问答查看", Desc: "查看学员提问沉淀下来的问答库"},
+		{Code: "qa", Name: "问答管理", Desc: "定稿、编辑、合并、删除问答对"},
 		{Code: "ai.view", Name: "AI 配置查看", Desc: "查看模型配置与知识库就绪状态"},
 		{Code: "ai", Name: "AI 配置管理", Desc: "修改模型参数、测试连接、调试验问答"},
 	}},

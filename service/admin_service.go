@@ -113,6 +113,15 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/ai/retrieve", "ai:view", "", "", aiRetrieveHandler},
 	{http.MethodPost, "/ai/chat", "ai", "ai", "AI 问答调试", aiChatHandler},
 
+	// 问答沉淀：学员真实提问累积成的标准答案，定稿后可直接命中
+	{http.MethodGet, "/qa", "qa:view", "", "", qaList},
+	{http.MethodPost, "/qa/save", "qa", "qa", "保存问答对", qaSave},
+	{http.MethodPost, "/qa/status", "qa", "qa", "变更问答对状态", qaStatus},
+	{http.MethodPost, "/qa/merge", "qa", "qa", "合并重复问答", qaMerge},
+	{http.MethodPost, "/qa/bulk-publish", "qa", "qa", "批量定稿问答", qaBulkPublish},
+	{http.MethodPost, "/qa/delete", "qa", "qa", "删除问答对", qaDelete},
+	{http.MethodPost, "/qa/feedback", "ai", "ai", "记录问答反馈", qaFeedback},
+
 	// 学员与学习记录（数据来自小程序端，后台以查看为主）
 	{http.MethodGet, "/learners", "learners:view", "", "", mpUserList},
 	{http.MethodGet, "/learners/detail", "learners:view", "", "", mpUserDetail},

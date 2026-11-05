@@ -138,6 +138,17 @@ export const api = {
     remove: (id) => http.post('/kb/delete', { id })
   },
 
+  // 问答沉淀：学员真实提问累积成的标准答案
+  qa: {
+    list: (params) => http.get('/qa', { params }),
+    save: (data) => http.post('/qa/save', data),
+    status: (id, status) => http.post('/qa/status', { id, status }),
+    merge: (fromId, toId) => http.post('/qa/merge', { fromId, toId }),
+    bulkPublish: () => http.post('/qa/bulk-publish', {}),
+    remove: (id) => http.post('/qa/delete', { id }),
+    feedback: (id, helpful) => http.post('/qa/feedback', { id, helpful })
+  },
+
   // AI 助手：配置、连通性测试、检索与问答
   ai: {
     configs: () => http.get('/ai/configs'),

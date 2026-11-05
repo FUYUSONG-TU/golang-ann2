@@ -69,3 +69,48 @@ type KbChunk struct {
 
 // TableName 指定表名
 func (KbChunk) TableName() string { return "kb_chunk" }
+
+// 问答库状态。问答对是「学员真实提问」沉淀下来的资产，
+// 只有定稿的才允许直接命中，避免模型的错误答案被反复引用。
+const (
+	QaCandidate = "candidate" // 待审核（AI 生成后自动入池）
+	QaPublished = "published" // 已定稿，可被直接命中
+	QaOffline   = "offline"   // 已下架，暂停命中
+	QaMerged    = "merged"    // 已并入另一条问答对
+	QaRejected  = "rejected"  // 已驳回，不再展示
+)
+
+// 问答对来源
+const (
+	QaSourceAi     = "ai"     // 学员提问后由模型作答沉淀
+	QaSourceManual = "manual" // 后台手工录入
+)
+
+// KbQa 问答对，知识库的第二层结构。
+// 文档块解决「资料里写了什么」，问答对解决「这个问题该怎么答」——
+// 前者是原文，后者是已经被验证过、可以直接复用的结论。
+// terms 缓存问句切好的检索词元，避免每次匹配都重新切词。
+type KbQa struct {
+	Id        int64          `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Question  string         `gorm:"column:question;size:255;index:idx_qa_question" json:"question"`
+	Answer    string         `gorm:"column:answer;type:longtext" json:"answer"`
+	Aliases   string         `gorm:"column:aliases;type:text" json:"aliases"`
+	Terms     string         `gorm:"column:terms;size:512" json:"-"`
+	Category  string         `gorm:"column:category;size:32;index:idx_qa_category" json:"category"`
+	Source    string         `gorm:"column:source;size:16;default:ai" json:"source"`
+	Refs      string         `gorm:"column:refs;type:text" json:"refs"`
+	AskCount  int            `gorm:"column:askCount;default:0" json:"askCount"`
+	HitCount  int            `gorm:"column:hitCount;default:0" json:"hitCount"`
+	UpCount   int            `gorm:"column:upCount;default:0" json:"upCount"`
+	DownCount int            `gorm:"column:downCount;default:0" json:"downCount"`
+	Quality   float64        `gorm:"column:quality;default:0" json:"quality"`
+	Status    string         `gorm:"column:status;size:16;default:candidate;index:idx_qa_status" json:"status"`
+	MergedTo  int64          `gorm:"column:mergedTo;default:0" json:"mergedTo"`
+	Remark    string         `gorm:"column:remark;size:255" json:"remark"`
+	CreatedAt time.Time      `gorm:"column:createdAt" json:"createdAt"`
+	UpdatedAt time.Time      `gorm:"column:updatedAt" json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `gorm:"column:deletedAt;index:idx_qa_deleted" json:"-"`
+}
+
+// TableName 指定表名
+func (KbQa) TableName() string { return "kb_qa" }
