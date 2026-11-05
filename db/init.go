@@ -24,7 +24,9 @@ func Init() error {
 		dataBase = "golang_demo"
 	}
 	source = fmt.Sprintf(source, user, pwd, addr, dataBase)
-	fmt.Println("start init mysql with ", source)
+	// 日志里只保留连接目标，避免把数据库密码打印到云托管日志中
+	safeTarget := fmt.Sprintf("%s@tcp(%s)/%s", user, addr, dataBase)
+	fmt.Println("start init mysql with ", safeTarget)
 
 	db, err := gorm.Open(mysql.Open(source), &gorm.Config{
 		NamingStrategy: schema.NamingStrategy{
@@ -50,7 +52,7 @@ func Init() error {
 
 	dbInstance = db
 
-	fmt.Println("finish init mysql with ", source)
+	fmt.Println("finish init mysql with ", safeTarget)
 	return nil
 }
 

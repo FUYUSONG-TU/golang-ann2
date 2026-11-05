@@ -114,6 +114,42 @@ curl -X POST -H 'content-type: application/json' -d '{"action": "inc"}' https://
 
 
 
+## 后台管理（二次开发新增）
+
+访问 `http://<服务域名>/admin` 打开管理页面，可以查看计数、自增、设为指定值、清零、新建与删除记录，并显示数据库延迟与服务运行时长。
+
+### 接口一览
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/admin/overview` | 概览：当前计数、记录数、数据库延迟、运行时长 |
+| GET | `/api/admin/counters` | 全部计数记录 |
+| POST | `/api/admin/counters` | 新建记录，body `{"count":0}`，可省略 body |
+| POST | `/api/admin/counters/incr` | 自增，body `{"id":1,"step":1}` |
+| POST | `/api/admin/counters/set` | 设为固定值，body `{"id":1,"count":10}` |
+| POST | `/api/admin/counters/delete` | 删除记录，body `{"id":2}` |
+
+### 访问控制
+
+在云托管「服务设置 → 环境变量」中配置 `ADMIN_TOKEN` 后，所有管理接口都需要携带请求头
+`X-Admin-Token: <你的密钥>`（或查询参数 `?token=`）才会放行，未携带返回 401；
+页面首次访问会弹窗要求输入密钥，密钥保存在浏览器本地。
+
+**未配置 `ADMIN_TOKEN` 时管理页面完全公开**，公网环境请务必配置，否则任何人都能改数据。
+
+### 本地调试
+
+```bash
+export MYSQL_USERNAME=xxx MYSQL_PASSWORD=xxx
+export MYSQL_ADDRESS=10.0.0.0:3306 MYSQL_DATABASE=golang_demo
+go run .              # 默认监听 80 端口
+PORT=8080 go run .    # 或指定端口
+```
+
+本地不在云托管 VPC 内时，`MYSQL_ADDRESS` 要填 MySQL 的**外网地址**。
+
+
+
 ## License
 
 [MIT](./LICENSE)
