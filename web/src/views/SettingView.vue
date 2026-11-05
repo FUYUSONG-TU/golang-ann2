@@ -102,9 +102,22 @@ async function load() {
     groups.value = data.groups || []
     Object.keys(values).forEach((k) => delete values[k])
     Object.keys(switchValues).forEach((k) => delete switchValues[k])
-    Object.entries(data.values || {}).forEach(([k, v]) => {
-      values[k] = v
-      switchValues[k] = v === 'true'
+
+    // 只有 type 为 switch 的项才进开关状态表，文本项一律按原始字符串保存，
+    // 否则保存时会把所有文本配置写成 "false"
+    const switchKeys = new Set()
+    groups.value.forEach((group) => {
+      ;(group.items || []).forEach((item) => {
+        if (item.type === 'switch') switchKeys.add(item.key)
+      })
+    })
+
+    const source = data.values || {}
+    switchKeys.forEach((key) => {
+      switchValues[key] = source[key] === 'true' || source[key] === '1'
+    })
+    Object.entries(source).forEach(([k, v]) => {
+      if (!switchKeys.has(k)) values[k] = v == null ? '' : String(v)
     })
   } catch (e) {
     ElMessage.error(e.message)
@@ -116,11 +129,20 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const items = Object.keys(values).map((key) => ({
+    const keys = new Set([...Object.keys(values), ...Object.keys(switchValues)])
+    const items = [...keys].map((key) => ({
       key,
-      value: typeof switchValues[key] === 'boolean' ? String(switchValues[key]) : values[key]
+      value: key in switchValues ? (switchValues[key] ? 'true' : 'false') : String(values[key] ?? '')
     }))
     const data = await api.configs.save(items)
+    // 用后端回写的结果刷新本地态，避免前后端不一致
+    const saved = data.values || {}
+    Object.keys(switchValues).forEach((k) => {
+      if (k in saved) switchValues[k] = saved[k] === 'true' || saved[k] === '1'
+    })
+    Object.keys(values).forEach((k) => {
+      if (k in saved) values[k] = saved[k] == null ? '' : String(saved[k])
+    })
     ElMessage.success(`已保存 ${data.saved} 项设置`)
   } catch (e) {
     ElMessage.error(e.message)

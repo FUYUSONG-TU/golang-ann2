@@ -45,17 +45,42 @@ func configSave(c *adminCtx, r *http.Request) (interface{}, error) {
 	if len(req.Items) == 0 {
 		return nil, badRequest("没有需要保存的配置项")
 	}
-	saved := 0
+
+	// 先取现有配置的类型，用于规范化与防止写入未知 key
+	known := map[string]string{}
+	if list, err := dao.ListConfigs(); err == nil {
+		for _, item := range list {
+			known[item.Key] = item.Type
+		}
+	}
+
+	saved, skipped := 0, 0
 	for _, item := range req.Items {
 		key := strings.TrimSpace(item.Key)
 		if key == "" {
 			continue
 		}
-		if err := dao.SaveConfig(key, item.Value); err != nil {
+		configType, ok := known[key]
+		if !ok {
+			// 未知配置项直接跳过，避免前端脏 key 建出无效记录
+			skipped++
+			continue
+		}
+		value := item.Value
+		if configType == "switch" {
+			// 开关值统一为 true / false，兼容 1、on、yes 等写法
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "true", "1", "on", "yes":
+				value = "true"
+			default:
+				value = "false"
+			}
+		}
+		if err := dao.SaveConfig(key, value); err != nil {
 			return nil, serverError("保存 " + key + " 失败: " + err.Error())
 		}
 		saved++
 	}
 	values, _ := dao.ConfigMap()
-	return map[string]interface{}{"saved": saved, "values": values}, nil
+	return map[string]interface{}{"saved": saved, "skipped": skipped, "values": values}, nil
 }

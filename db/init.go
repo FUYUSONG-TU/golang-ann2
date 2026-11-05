@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"wxcloudrun-golang/db/model"
@@ -65,6 +66,10 @@ func Init() error {
 		fmt.Println("seed data error,err=", err.Error())
 		return err
 	}
+	// 修复历史版本在保存设置时把文本配置误写成布尔值的问题，失败不阻断启动
+	if err := repairConfigs(); err != nil {
+		fmt.Println("repair configs error,err=", err.Error())
+	}
 
 	fmt.Println("finish init mysql with ", safeTarget)
 	return nil
@@ -100,6 +105,35 @@ var defaultConfigs = []model.SysConfig{
 	{Key: "maintenance", Value: "false", GroupName: "basic", Label: "维护模式", Type: "switch", Remark: "开启后前台接口返回维护提示"},
 	{Key: "miniProgramName", Value: "机匠学徒", GroupName: "mini", Label: "小程序名称", Type: "text", Remark: "小程序端展示名"},
 	{Key: "miniProgramAppId", Value: "", GroupName: "mini", Label: "AppID", Type: "text", Remark: "小程序 AppID，接入后填写"},
+}
+
+// repairConfigs 修复历史缺陷：保存设置时会把所有文本配置写成 "true"/"false"。
+// 只处理内置的文本类配置，且仅当当前值恰好是布尔字符串时才回退到默认值，
+// 因此对正常编辑过的配置没有影响，重复执行也安全。
+func repairConfigs() error {
+	repaired := 0
+	for _, def := range defaultConfigs {
+		if def.Type == "switch" {
+			continue
+		}
+		var item model.SysConfig
+		if err := dbInstance.Where("`key` = ?", def.Key).First(&item).Error; err != nil {
+			continue
+		}
+		value := strings.TrimSpace(item.Value)
+		if value != "true" && value != "false" {
+			continue
+		}
+		if err := dbInstance.Model(&model.SysConfig{}).Where("id = ?", item.Id).
+			Update("value", def.Value).Error; err != nil {
+			return err
+		}
+		repaired++
+	}
+	if repaired > 0 {
+		log.Printf("已修复 %d 项被误写为布尔值的站点配置", repaired)
+	}
+	return nil
 }
 
 // seedData 首次启动写入内置数据，已存在则跳过
