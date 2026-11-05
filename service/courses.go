@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -274,6 +275,22 @@ func courseDelete(c *adminCtx, r *http.Request) (interface{}, error) {
 	}
 	if _, err := dao.FindCourse(req.Id); err != nil {
 		return nil, notFound("课程不存在")
+	}
+	// 被学习路线引用时不允许直接删除，否则路线里会留下打不开的课程
+	refs, err := dao.ListPathsByCourse(req.Id)
+	if err != nil {
+		return nil, serverError("检查路线引用失败: " + err.Error())
+	}
+	if len(refs) > 0 {
+		names := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			if ref.PathName == "" {
+				continue
+			}
+			names = append(names, "「"+ref.PathName+"」")
+		}
+		return nil, badRequest("该课程已被 " + strconv.Itoa(len(refs)) + " 条学习路线引用" +
+			strings.Join(names, "、") + "，请先从路线中移除")
 	}
 	if err := dao.DeleteChaptersByCourse(req.Id); err != nil {
 		return nil, serverError("删除章节失败: " + err.Error())

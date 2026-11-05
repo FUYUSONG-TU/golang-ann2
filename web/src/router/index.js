@@ -38,6 +38,18 @@ const routes = [
         meta: { title: '课程编辑', module: 'courses', activeMenu: '/courses' }
       },
       {
+        path: 'paths',
+        name: 'paths',
+        component: () => import('../views/PathView.vue'),
+        meta: { title: '学习路线', module: 'paths' }
+      },
+      {
+        path: 'paths/:id',
+        name: 'path-edit',
+        component: () => import('../views/PathEditView.vue'),
+        meta: { title: '路线编排', module: 'paths', activeMenu: '/paths' }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/UserView.vue'),

@@ -39,6 +39,8 @@ var permissionCatalog = []permGroup{
 		{Code: "majors", Name: "专业管理", Desc: "新建、编辑、删除专业与调整排序"},
 		{Code: "courses.view", Name: "课程查看", Desc: "查看课程与章节内容"},
 		{Code: "courses", Name: "课程管理", Desc: "新建、编辑、发布、删除课程与章节"},
+		{Code: "paths.view", Name: "路线查看", Desc: "查看学习路线与阶段配置"},
+		{Code: "paths", Name: "路线管理", Desc: "新建、编辑、发布、删除学习路线"},
 	}},
 	{Group: "业务数据", Items: []permItem{
 		{Code: "counters.view", Name: "计数查看", Desc: "查看计数记录"},

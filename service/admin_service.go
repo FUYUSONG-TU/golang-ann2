@@ -80,6 +80,23 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/chapters/delete", "courses", "courses", "删除章节", chapterDelete},
 	{http.MethodPost, "/chapters/sort", "courses", "courses", "调整章节排序", chapterSort},
 
+	// 课程内容：学习路线（路线 → 阶段 → 课程引用）
+	{http.MethodGet, "/paths", "paths:view", "", "", pathList},
+	{http.MethodGet, "/paths/detail", "paths:view", "", "", pathDetail},
+	{http.MethodPost, "/paths/save", "paths", "paths", "保存学习路线", pathSave},
+	{http.MethodPost, "/paths/status", "paths", "paths", "变更路线状态", pathStatus},
+	{http.MethodPost, "/paths/delete", "paths", "paths", "删除学习路线", pathDelete},
+	{http.MethodPost, "/paths/sort", "paths", "paths", "调整路线排序", pathSort},
+
+	{http.MethodPost, "/path-stages/save", "paths", "paths", "保存路线阶段", pathStageSave},
+	{http.MethodPost, "/path-stages/delete", "paths", "paths", "删除路线阶段", pathStageDelete},
+	{http.MethodPost, "/path-stages/sort", "paths", "paths", "调整阶段排序", pathStageSort},
+
+	{http.MethodPost, "/path-items/add", "paths", "paths", "路线添加课程", pathItemAdd},
+	{http.MethodPost, "/path-items/update", "paths", "paths", "调整路线课程", pathItemUpdate},
+	{http.MethodPost, "/path-items/remove", "paths", "paths", "路线移除课程", pathItemRemove},
+	{http.MethodPost, "/path-items/sort", "paths", "paths", "调整路线课程排序", pathItemSort},
+
 	// 小程序端（骨架，待接入）
 	{http.MethodGet, "/mp/summary", "mp:view", "", "", mpSummary},
 }

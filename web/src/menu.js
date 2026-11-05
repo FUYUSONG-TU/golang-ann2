@@ -8,7 +8,8 @@ export const menuGroups = [
     title: '课程内容',
     items: [
       { path: '/majors', title: '专业管理', icon: 'Collection', module: 'majors' },
-      { path: '/courses', title: '课程管理', icon: 'Reading', module: 'courses' }
+      { path: '/courses', title: '课程管理', icon: 'Reading', module: 'courses' },
+      { path: '/paths', title: '学习路线', icon: 'Guide', module: 'paths' }
     ]
   },
   {

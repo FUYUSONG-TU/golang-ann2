@@ -109,6 +109,24 @@ export const api = {
     sort: (ids) => http.post('/chapters/sort', { ids })
   },
 
+  // 课程内容：学习路线
+  paths: {
+    list: (params) => http.get('/paths', { params }),
+    detail: (id) => http.get('/paths/detail', { params: { id } }),
+    save: (data) => http.post('/paths/save', data),
+    status: (id, status) => http.post('/paths/status', { id, status }),
+    remove: (id) => http.post('/paths/delete', { id }),
+    sort: (ids) => http.post('/paths/sort', { ids }),
+    stageSave: (data) => http.post('/path-stages/save', data),
+    stageRemove: (id) => http.post('/path-stages/delete', { id }),
+    stageSort: (ids) => http.post('/path-stages/sort', { ids }),
+    addCourses: (pathId, stageId, courseIds) =>
+      http.post('/path-items/add', { pathId, stageId, courseIds }),
+    updateItem: (data) => http.post('/path-items/update', data),
+    removeItem: (id) => http.post('/path-items/remove', { id }),
+    sortItems: (ids) => http.post('/path-items/sort', { ids })
+  },
+
   // 计数业务
   counters: {
     list: () => http.get('/counters'),

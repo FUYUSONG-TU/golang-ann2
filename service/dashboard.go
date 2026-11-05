@@ -67,6 +67,13 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 		}
 		coursePublished = counts[model.ContentPublished]
 	}
+	pathTotal, pathPublished := int64(0), int64(0)
+	if counts, err := dao.CountPathsByStatus(); err == nil {
+		for _, v := range counts {
+			pathTotal += v
+		}
+		pathPublished = counts[model.ContentPublished]
+	}
 
 	latency, pingErr := dbLatency()
 	values, _ := dao.ConfigMap()
@@ -85,6 +92,8 @@ func dashboardOverview(c *adminCtx, r *http.Request) (interface{}, error) {
 			"majorTotal":      majorTotal,
 			"courseTotal":     courseTotal,
 			"coursePublished": coursePublished,
+			"pathTotal":       pathTotal,
+			"pathPublished":   pathPublished,
 		},
 		"trend":         trend,
 		"recentLogins":  recentLogins,

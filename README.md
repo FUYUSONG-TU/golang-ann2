@@ -58,7 +58,7 @@
 │   ├── model/               # Counter / AdminUser / AdminRole / 日志 / 配置
 │   └── dao/                 # 数据访问
 ├── web/                     # Vue 前端工程
-│   ├── src/views/           # 11 个页面
+│   ├── src/views/           # 16 个页面
 │   ├── src/layouts/         # 侧边栏 + 顶栏
 │   ├── src/menu.js          # 菜单与权限模块的唯一定义
 │   └── dist/                # 构建产物，不提交
@@ -73,13 +73,18 @@
 | --- | --- | --- |
 | `/login` | 登录 | 无需登录 |
 | `/` | 数据看板 | `dashboard` |
+| `/majors` | 专业管理 | `majors.view` / `majors` |
+| `/courses` | 课程管理 | `courses.view` / `courses` |
+| `/courses/:id` | 课程编辑（章节树） | `courses` |
+| `/paths` | 学习路线 | `paths.view` / `paths` |
+| `/paths/:id` | 路线编排（阶段与课程） | `paths` |
 | `/users` | 账号管理 | `users.view` / `users` |
 | `/roles` | 角色权限 | `roles.view` / `roles` |
 | `/counters` | 计数管理 | `counters.view` / `counters` |
 | `/mini` | 小程序管理（骨架） | `mp.view` / `mp` |
 | `/logs` | 操作日志 | `logs.view` / `logs` |
 | `/settings` | 系统设置 | `configs.view` / `configs` |
-| `/system` | 系统信息 | `system:view` |
+| `/system` | 系统信息 | `system.view` |
 | `/profile` | 个人中心 | 登录即可 |
 | `/403` | 无权限提示 | 登录即可 |
 
@@ -96,6 +101,12 @@
 | `users` | 账号管理 | 新建/编辑/禁用/删除/重置密码 |
 | `roles.view` | 角色查看 | 只看角色 |
 | `roles` | 角色管理 | 新建/编辑/删除角色 |
+| `majors.view` | 专业查看 | 只看专业分类 |
+| `majors` | 专业管理 | 增删改专业与排序 |
+| `courses.view` | 课程查看 | 只看课程与章节 |
+| `courses` | 课程管理 | 增删改课程、章节与发布 |
+| `paths.view` | 路线查看 | 只看学习路线 |
+| `paths` | 路线管理 | 编排阶段、增删课程、发布路线 |
 | `counters.view` | 计数查看 | 只看计数 |
 | `counters` | 计数管理 | 增删改计数 |
 | `mp.view` | 小程序查看 | 看骨架 |

@@ -131,6 +131,16 @@ func ListCourses(q CourseQuery) ([]model.Course, int64, error) {
 	return list, total, err
 }
 
+// ListCoursesByIds 批量查询课程，供路线详情回填课程信息
+func ListCoursesByIds(ids []int64) ([]model.Course, error) {
+	list := make([]model.Course, 0)
+	if len(ids) == 0 {
+		return list, nil
+	}
+	err := db.Get().Where("id IN ?", ids).Find(&list).Error
+	return list, err
+}
+
 // FindCourse 按主键查询课程
 func FindCourse(id int64) (*model.Course, error) {
 	var item model.Course
@@ -279,4 +289,18 @@ func CountCoursesByStatus() (map[string]int64, error) {
 		out[row.Status] = row.Total
 	}
 	return out, nil
+}
+
+// NextSortBy 按条件取排序号加一，用于同一父级下的局部排序
+func NextSortBy(table, condition string, args ...interface{}) int {
+	row := db.Get().Table(table).Where(condition, args...).
+		Select("IFNULL(MAX(sort), 0)").Row()
+	if row == nil {
+		return 1
+	}
+	var maxSort int
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return maxSort + 1
 }

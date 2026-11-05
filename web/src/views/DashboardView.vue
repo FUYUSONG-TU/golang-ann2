@@ -67,7 +67,8 @@
           {{ cards.courseTotal || 0 }}<span class="jj-stat-unit">门课程</span>
         </div>
         <div class="jj-stat-foot">
-          {{ cards.majorTotal || 0 }} 个专业 · 已发布 {{ cards.coursePublished || 0 }} 门
+          {{ cards.majorTotal || 0 }} 个专业 · {{ cards.pathTotal || 0 }} 条路线 · 已发布
+          {{ cards.coursePublished || 0 }} 门
         </div>
       </div>
     </div>
@@ -196,7 +197,12 @@ const cards = reactive({
   loginFailToday: 0,
   opToday: 0,
   counterValue: 0,
-  counterTotal: 0
+  counterTotal: 0,
+  pathTotal: 0,
+  pathPublished: 0,
+  majorTotal: 0,
+  courseTotal: 0,
+  coursePublished: 0
 })
 
 const displayName = computed(() => auth.user?.nickname || auth.user?.username || '管理员')
