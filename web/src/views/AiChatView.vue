@@ -61,7 +61,8 @@
           <div v-if="!messages.length" class="chat-empty">
             <div class="empty-title">问点什么试试</div>
             <div class="jj-sub">
-              回答只依据「已发布且解析成功」的资料。资料里没有的内容，模型会被要求直说没有。
+              优先依据「已发布且解析成功」的资料作答并标出处；资料里没有的问题，让模型凭通用知识兜底，
+              答案带「未核实」标记后自动进候选池，人工确认后才变成标准答案。
             </div>
             <div class="suggests">
               <span v-for="item in suggests" :key="item" class="suggest" @click="ask(item)">{{ item }}</span>
@@ -71,11 +72,14 @@
           <div v-for="(msg, index) in messages" :key="index" class="msg" :class="msg.role">
             <div class="avatar">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
             <div class="msg-main">
-              <div v-if="msg.source && !msg.pending" class="src-badge" :class="msg.source">
+              <div v-if="msg.source && msg.source !== 'none' && !msg.pending" class="src-badge" :class="msg.source">
                 <template v-if="msg.source === 'qa'">
                   知识库直出 · 未调用模型<template v-if="msg.qaHitTotal"> · 第 {{ msg.qaHitTotal }} 次命中</template>
                 </template>
                 <template v-else-if="msg.source === 'model'">模型生成 · 已沉淀为待审核问答</template>
+                <template v-else-if="msg.source === 'model_fallback'">
+                  资料未命中 · AI 通用知识作答 · 已入候选池待核实
+                </template>
               </div>
               <div class="bubble" :class="{ error: msg.error }">
                 <template v-if="msg.role === 'assistant' && msg.pending">
@@ -84,8 +88,8 @@
                 <template v-else>{{ msg.content }}</template>
               </div>
 
-              <div v-if="msg.source === 'model' && msg.meta" class="msg-meta">
-                <span v-if="msg.meta.hitCount !== undefined">命中 {{ msg.meta.hitCount }} 段</span>
+              <div v-if="(msg.source === 'model' || msg.source === 'model_fallback') && msg.meta" class="msg-meta">
+                <span v-if="msg.meta.hitCount > 0">命中 {{ msg.meta.hitCount }} 段</span>
                 <span v-if="msg.meta.latencyMs">耗时 {{ msg.meta.latencyMs }} ms</span>
                 <span v-if="msg.meta.usage?.total_tokens">token {{ msg.meta.usage.total_tokens }}</span>
                 <span v-if="msg.meta.model">{{ msg.meta.model }}</span>
@@ -93,6 +97,10 @@
 
               <div v-if="msg.reason === 'kb_empty' && !msg.pending && !msg.error" class="msg-action">
                 <el-button link type="primary" @click="$router.push('/kb')">去资料管理</el-button>
+              </div>
+
+              <div v-if="msg.source === 'model_fallback' && !msg.pending" class="msg-action fallback-action">
+                <el-button link type="warning" @click="$router.push('/qa')">去问答沉淀核实这条答案</el-button>
               </div>
 
               <div v-if="msg.qaId && !msg.error && !msg.pending" class="feedback">
@@ -141,7 +149,7 @@
           />
           <div class="input-foot">
             <span class="jj-sub">
-              {{ canChat ? '已定稿的问题直接命中问答库；新问题才调用模型，答完自动进候选池。' : '当前账号没有调用权限，只能使用右侧检索调试。' }}
+              {{ canChat ? '已定稿直接命中 → 资料命中带出处作答 → 资料没命中走 AI 兜底，答案入候选池待核实。' : '当前账号没有调用权限，只能使用右侧检索调试。' }}
             </span>
             <el-button type="primary" :loading="sending" :disabled="!canChat || !question.trim()" @click="send">
               <el-icon><Promotion /></el-icon>发送
@@ -626,6 +634,17 @@ onMounted(load)
   color: #2563eb;
   background: rgba(37, 99, 235, 0.07);
   border: 1px solid rgba(37, 99, 235, 0.16);
+}
+
+/* 兜底答案没有资料依据，用警示色和「模型作答」明确区分，避免被当成已核实结论 */
+.src-badge.model_fallback {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.fallback-action {
+  margin-top: 2px;
 }
 
 .feedback {

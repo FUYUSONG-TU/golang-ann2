@@ -81,9 +81,13 @@ const (
 )
 
 // 问答对来源
+// ai：模型依据检索到的资料作答后沉淀，答案带出处，可信度最高；
+// ai_fallback：资料里没命中，模型凭通用知识作答后沉淀，没有出处，必须人工核实；
+// manual：后台手工录入。
 const (
-	QaSourceAi     = "ai"     // 学员提问后由模型作答沉淀
-	QaSourceManual = "manual" // 后台手工录入
+	QaSourceAi       = "ai"          // 学员提问后由模型依据资料作答沉淀
+	QaSourceFallback = "ai_fallback" // 资料未命中，模型凭通用知识作答沉淀（无出处）
+	QaSourceManual   = "manual"      // 后台手工录入
 )
 
 // KbQa 问答对，知识库的第二层结构。

@@ -157,8 +157,35 @@
                 </div>
               </el-form-item>
               <el-form-item label="无答案话术">
-                <el-input v-model="form.refuseText" :disabled="!canEdit" placeholder="检索不到内容时的兜底回复" />
-                <div class="jj-sub field-tip">检索为空时直接返回这句话，不会调用模型，省一次 token。</div>
+                <el-input v-model="form.refuseText" :disabled="!canEdit" placeholder="兜底关闭或模型不可用时的回复" />
+                <div class="jj-sub field-tip">只在「未命中兜底」关闭或模型调用失败时使用，不会额外消耗 token。</div>
+              </el-form-item>
+              <el-form-item label="未命中兜底">
+                <div class="switch-row">
+                  <el-switch v-model="form.fallbackEnabled" :disabled="!canEdit" />
+                  <span class="jj-sub inline-tip">
+                    {{ form.fallbackEnabled ? '已开启：资料没命中时由模型凭通用知识作答' : '已关闭：直接返回上面的无答案话术' }}
+                  </span>
+                </div>
+                <div class="jj-sub field-tip">
+                  开启后不会再出现「没找到」的死胡同：答案带【未引用资料】声明返回，同时自动进「问答沉淀」候选池，
+                  人工核实定稿后才成为可直接命中的标准答案。这是知识库从零积累内容的主要入口。
+                </div>
+              </el-form-item>
+              <el-form-item v-if="form.fallbackEnabled" label="兜底提示词">
+                <el-input
+                  v-model="form.fallbackPrompt"
+                  type="textarea"
+                  :rows="5"
+                  maxlength="4000"
+                  show-word-limit
+                  :disabled="!canEdit"
+                  placeholder="留空使用内置的兜底指令"
+                />
+                <div class="jj-sub field-tip">
+                  兜底时模型拿不到任何资料，这段指令要强调「不确定就说不确定」和「具体参数需按手册确认」，
+                  避免它编出一个看起来合理的切削用量。
+                </div>
               </el-form-item>
             </el-form>
           </div>
@@ -261,7 +288,9 @@ import { canWrite } from '../store/auth'
 
 const router = useRouter()
 const reloadTick = inject('jjReloadTick', ref(0))
-const canEdit = canWrite('ai')
+// 必须用 computed：刷新页面时权限是异步加载的，setup 阶段读一次会永久拿到空权限，
+// 表现是整个配置页变成只读。
+const canEdit = computed(() => canWrite('ai'))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -285,7 +314,9 @@ const form = reactive({
   topK: 5,
   minScore: 0.15,
   systemPrompt: '',
-  refuseText: ''
+  refuseText: '',
+  fallbackEnabled: true,
+  fallbackPrompt: ''
 })
 
 const statusText = computed(() => {
@@ -353,7 +384,9 @@ function applyConfig(data) {
     topK: Number(cfg.topK ?? 5),
     minScore: Number(cfg.minScore ?? 0.15),
     systemPrompt: cfg.systemPrompt || '',
-    refuseText: cfg.refuseText || ''
+    refuseText: cfg.refuseText || '',
+    fallbackEnabled: cfg.fallbackEnabled !== false,
+    fallbackPrompt: cfg.fallbackPrompt || ''
   })
   hasKey.value = !!data.hasKey
   ready.value = !!data.ready
@@ -381,7 +414,7 @@ async function load() {
 }
 
 async function save() {
-  if (!canEdit) return
+  if (!canEdit.value) return
   saving.value = true
   try {
     const data = await api.ai.save({ ...form })
@@ -395,7 +428,7 @@ async function save() {
 }
 
 async function testConnection() {
-  if (!canEdit) return
+  if (!canEdit.value) return
   if (!hasKey.value && !form.apiKey) {
     ElMessage.warning('先填写 API Key 再测试')
     return
@@ -533,6 +566,13 @@ onMounted(load)
   font-variant-numeric: tabular-nums;
   font-weight: 650;
   color: var(--jj-orange);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
 .checklist {

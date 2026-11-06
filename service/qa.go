@@ -41,8 +41,9 @@ var qaStatusText = map[string]string{
 
 // 问答来源中文文案
 var qaSourceText = map[string]string{
-	model.QaSourceAi:     "学员提问",
-	model.QaSourceManual: "手工录入",
+	model.QaSourceAi:       "学员提问 · 有出处",
+	model.QaSourceFallback: "AI 兜底 · 无出处",
+	model.QaSourceManual:   "手工录入",
 }
 
 // ---------- 匹配 ----------
@@ -192,10 +193,16 @@ func findSimilarQa(terms []string) (int64, float64, model.KbQa) {
 
 // ---------- 沉淀 ----------
 
-// collectQaCandidate 把一次真实提问沉淀成问答对。
+// collectQaCandidate 把一次「依据资料作答」的提问沉淀成问答对。
 // 已经有相似问题就把新问法并进别名、提问次数 +1，不会再造一条重复记录；
 // 否则新建一条待审核。任何失败都只记日志，不影响本次回答。
 func collectQaCandidate(question, answer string, hits []aiHit) int64 {
+	return collectQaCandidateWithSource(question, answer, hits, model.QaSourceAi)
+}
+
+// collectQaCandidateWithSource 沉淀问答对，并记录答案的来源。
+// 来源决定审核台的展示与「一键定稿」是否放行：无出处的兜底答案必须人工确认。
+func collectQaCandidateWithSource(question, answer string, hits []aiHit, source string) int64 {
 	question = strings.TrimSpace(question)
 	answer = strings.TrimSpace(answer)
 	if question == "" || answer == "" {
@@ -217,13 +224,20 @@ func collectQaCandidate(question, answer string, hits []aiHit) int64 {
 		category = hits[0].Category
 	}
 	refs, _ := json.Marshal(hits)
+	// 兜底作答没有出处，统一存空数组而不是 null，避免审核台和前端多做一次空值判断
+	if len(hits) == 0 {
+		refs = []byte("[]")
+	}
+	if source == "" {
+		source = model.QaSourceAi
+	}
 	now := time.Now()
 	item := &model.KbQa{
 		Question:  truncate(question, 240),
 		Answer:    answer,
 		Terms:     qaBuildTerms(question, ""),
 		Category:  category,
-		Source:    model.QaSourceAi,
+		Source:    source,
 		Refs:      string(refs),
 		AskCount:  1,
 		Status:    model.QaCandidate,

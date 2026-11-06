@@ -23,6 +23,7 @@ const aiGroup = "ai"
 var aiConfigKeys = []string{
 	"aiEnabled", "aiProvider", "aiBaseUrl", "aiApiKey", "aiChatModel", "aiEmbeddingModel",
 	"aiTemperature", "aiMaxTokens", "aiTopK", "aiMinScore", "aiSystemPrompt", "aiRefuseText",
+	"aiFallbackEnabled", "aiFallbackPrompt",
 }
 
 // 默认值：没有配置过也能跑起来，只是没有 Key 时不能真正回答
@@ -33,9 +34,27 @@ const (
 		"回答要具体、可执行，涉及参数时给出数值和单位，涉及代码时给出完整可用片段。" +
 		"只能依据下面提供的资料回答；资料里没有的内容要直说没有，不要凭常识补全，也不要编造不存在的指令或参数。"
 	aiDefaultRefuse = "知识库里暂时没有找到与这个问题相关的内容。可以换个说法再问，或者先把相关资料补充到知识库。"
-	aiCallTimeout   = 60 * time.Second
-	aiMaxContext    = 6 * kbChunkSize * 3 // 上下文上限，防止一次把整本手册塞给模型
+
+	// aiDefaultFallbackPrompt 资料未命中时的兜底指令。
+	// 关键区别：这份指令不再要求「只依据资料」，而是要求模型在无资料前提下
+	// 老实交代不确定性——宁可给出判断路径，也不要编一个像模像样的切削参数。
+	aiDefaultFallbackPrompt = "你是机匠学徒的机床加工助手，服务对象是走心机、数控车床与加工中心的编程与操作人员。" +
+		"本次知识库没有检索到相关资料，你只能依靠通用知识作答。" +
+		"要求：一、先一句话说明这是通用知识、未经本厂资料核实；" +
+		"二、优先讲原理、判断方法和排查顺序，涉及具体切削用量、转速进给、刀具型号时，只给出常见取值范围并注明需按机床手册与实际工况确认；" +
+		"三、不要编造不存在的 G 代码、M 代码或厂商专有参数；" +
+		"四、如果这个问题本身就超出你的知识范围，直接说不确定，并说明需要查什么资料。"
+
+	aiCallTimeout = 60 * time.Second
+	aiMaxContext  = 6 * kbChunkSize * 3 // 上下文上限，防止一次把整本手册塞给模型
 )
+
+// aiFallbackBanner 兜底答案的固定前缀。
+// 在服务端拼接而不是靠模型自觉，是因为「有没有依据」这件事直接关系到车间参数安全，
+// 不能交给模型自己声明。
+const aiFallbackBanner = "【未引用资料 · 模型通用知识】\n" +
+	"资料库里没有收录这个问题，以下回答由模型根据通用知识生成，未经资料核实。\n" +
+	"涉及切削用量、刀具型号、宏程序参数，请以机床手册与工艺卡为准。\n\n"
 
 // aiConfig AI 运行期配置
 type aiConfig struct {
@@ -51,6 +70,10 @@ type aiConfig struct {
 	MinScore       float64
 	SystemPrompt   string
 	RefuseText     string
+	// Fallback 资料未命中时是否允许模型凭通用知识作答并沉淀进候选池
+	Fallback bool
+	// FallbackPrompt 兜底作答时使用的系统指令
+	FallbackPrompt string
 }
 
 // aiTestState 最近一次连通性测试结果，仅存进程内存，重启后清空
@@ -85,6 +108,10 @@ func loadAiConfig() aiConfig {
 		MinScore:       clampFloat(parseFloat(values["aiMinScore"], 0.15), 0, 1),
 		SystemPrompt:   pick("aiSystemPrompt", aiDefaultSystemPrompt),
 		RefuseText:     pick("aiRefuseText", aiDefaultRefuse),
+		// 兜底作答默认开启：没有它，知识库空着的时候每个新问题都是死胡同。
+		// 只有管理员显式关掉才会变成 false。
+		Fallback:       values["aiFallbackEnabled"] != "false",
+		FallbackPrompt: pick("aiFallbackPrompt", aiDefaultFallbackPrompt),
 	}
 	return cfg
 }
@@ -133,6 +160,8 @@ type aiConfigPayload struct {
 	MinScore       float64 `json:"minScore"`
 	SystemPrompt   string  `json:"systemPrompt"`
 	RefuseText     string  `json:"refuseText"`
+	Fallback       bool    `json:"fallbackEnabled"`
+	FallbackPrompt string  `json:"fallbackPrompt"`
 }
 
 func (cfg aiConfig) payload() aiConfigPayload {
@@ -149,6 +178,8 @@ func (cfg aiConfig) payload() aiConfigPayload {
 		MinScore:       cfg.MinScore,
 		SystemPrompt:   cfg.SystemPrompt,
 		RefuseText:     cfg.RefuseText,
+		Fallback:       cfg.Fallback,
+		FallbackPrompt: cfg.FallbackPrompt,
 	}
 }
 
@@ -199,6 +230,8 @@ func aiConfigSave(c *adminCtx, r *http.Request) (interface{}, error) {
 		MinScore       float64 `json:"minScore"`
 		SystemPrompt   string  `json:"systemPrompt"`
 		RefuseText     string  `json:"refuseText"`
+		Fallback       *bool   `json:"fallbackEnabled"`
+		FallbackPrompt string  `json:"fallbackPrompt"`
 	}{}
 	if err := decodeBody(r, &req); err != nil {
 		return nil, err
@@ -234,6 +267,13 @@ func aiConfigSave(c *adminCtx, r *http.Request) (interface{}, error) {
 	if systemPrompt == "" {
 		systemPrompt = aiDefaultSystemPrompt
 	}
+	fallbackPrompt := strings.TrimSpace(req.FallbackPrompt)
+	if len([]rune(fallbackPrompt)) > 4000 {
+		return nil, badRequest("兜底提示词不能超过 4000 字")
+	}
+	if fallbackPrompt == "" {
+		fallbackPrompt = aiDefaultFallbackPrompt
+	}
 
 	enabled := "false"
 	if req.Enabled != nil && *req.Enabled {
@@ -252,12 +292,22 @@ func aiConfigSave(c *adminCtx, r *http.Request) (interface{}, error) {
 		"aiMinScore":       strconv.FormatFloat(req.MinScore, 'f', 2, 64),
 		"aiSystemPrompt":   systemPrompt,
 		"aiRefuseText":     strings.TrimSpace(req.RefuseText),
+		"aiFallbackPrompt": fallbackPrompt,
 	}
 	if items["aiProvider"] == "" {
 		items["aiProvider"] = "deepseek"
 	}
 	if items["aiRefuseText"] == "" {
 		items["aiRefuseText"] = aiDefaultRefuse
+	}
+	// 前端没传开关就保持库里的原值，避免「只改别的字段」时把兜底开关意外重置。
+	// 兜底是默认开启的能力，只有显式传 false 才关。
+	if req.Fallback != nil {
+		if *req.Fallback {
+			items["aiFallbackEnabled"] = "true"
+		} else {
+			items["aiFallbackEnabled"] = "false"
+		}
 	}
 
 	// 传回的是脱敏串说明用户没改密钥，跳过；传空串表示主动清除
@@ -744,11 +794,16 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		return nil, serverError("检索失败: " + err.Error())
 	}
 
-	// 没有命中就不调用模型：没有依据时模型最容易编，而编错的参数会直接进车间。
-	// 但必须把原因说清楚，否则用户只会一遍遍换问法。
+	// 没有命中时不再直接回「没找到」：模型可用且兜底开关打开，就让模型凭通用知识作答，
+	// 答案带未核实声明后进候选池。这是知识库从 0 到 1 的入口——
+	// 库空着也能靠真实提问攒出第一批问答对，审核定稿后就变成可直达的知识。
 	if len(hits) == 0 {
 		docs, _ := dao.CountSearchableDocs()
 		chunks, _ := dao.CountKbChunks()
+		if modelReady && cfg.Fallback {
+			return aiFallbackAnswer(cfg, req.Question, candidates, docs, chunks)
+		}
+		// 兜底关闭或模型不可用，才能退回说明原因的话术
 		answer, reason := aiNoHitAnswer(req.Question, docs, chunks, modelReady)
 		return map[string]interface{}{
 			"answer": answer, "model": "", "source": "none", "reason": reason,
@@ -805,6 +860,64 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		"usage":      result.Usage,
 		"latencyMs":  latency,
 		"grounded":   true,
+	}, nil
+}
+
+// aiFallbackAnswer 资料未命中时的兜底作答。
+// 与主链路只有两点不同：不给模型资料上下文，答案前强制加「未核实」声明。
+// 沉淀时来源记 ai_fallback 且 refs 为空——审核台的「一键定稿」只认有出处的条目，
+// 所以这类答案必须人工逐条确认才会进入直接命中，不会被模型的自说自话污染。
+func aiFallbackAnswer(cfg aiConfig, question string, candidates int, docs, chunks int64) (interface{}, error) {
+	// 同一个问题可能已经被兜底答过一次，候选池里直接复用，省一次模型调用。
+	if id, score, existed := findSimilarQa(aiQueryTerms(question)); id > 0 && score >= qaDupThreshold &&
+		existed.Status == model.QaCandidate && len(parseQaRefs(existed.Refs)) == 0 {
+		_ = dao.IncrKbQaCounter(id, "askCount", 1)
+		return map[string]interface{}{
+			"answer": aiFallbackBanner + existed.Answer, "model": "",
+			"source": model.QaSourceFallback, "reason": "fallback_cached",
+			"qaId": id, "qaQuestion": existed.Question,
+			"hitCount": 0, "candidates": candidates, "references": []aiHit{},
+			"usage": nil, "latencyMs": 0, "grounded": false, "verified": false,
+			"kbDocs": docs, "kbChunks": chunks,
+		}, nil
+	}
+
+	messages := []aiMessage{
+		{Role: "system", Content: cfg.FallbackPrompt},
+		{Role: "user", Content: question},
+	}
+	result, latency, err := aiChatCompletion(cfg, messages, cfg.MaxTokens, cfg.Temperature)
+	if err != nil {
+		// 兜底失败不能再抛 500：学员要的是「这题现在答不了，以及为什么」，
+		// 而不是一个红色报错弹窗。
+		return map[string]interface{}{
+			"answer": "这个问题暂时答不上来：资料库里没有收录，模型兜底作答也没有成功。\n\n" +
+				"原因：" + truncate(err.Error(), 160) + "\n\n" +
+				"可以到「AI 配置」检查接口地址与密钥，或者把相关资料补进知识库后重试。",
+			"model": "", "source": "none", "reason": "fallback_failed",
+			"hitCount": 0, "candidates": candidates, "references": []aiHit{},
+			"usage": nil, "latencyMs": latency, "grounded": false,
+			"kbDocs": docs, "kbChunks": chunks,
+		}, nil
+	}
+
+	answer := ""
+	if len(result.Choices) > 0 {
+		answer = strings.TrimSpace(result.Choices[0].Message.Content)
+	}
+	if answer == "" {
+		answer = cfg.RefuseText
+	}
+	// 入库只存答案本体：未核实声明是这次回答的属性，不是知识本身。
+	// 人工核实定稿后，学员看到的就是干净的答案。
+	qaId := collectQaCandidateWithSource(question, answer, nil, model.QaSourceFallback)
+
+	return map[string]interface{}{
+		"answer": aiFallbackBanner + answer, "model": result.Model,
+		"source": model.QaSourceFallback, "reason": "fallback", "qaId": qaId,
+		"hitCount": 0, "candidates": candidates, "references": []aiHit{},
+		"usage": result.Usage, "latencyMs": latency, "grounded": false, "verified": false,
+		"kbDocs": docs, "kbChunks": chunks,
 	}, nil
 }
 
