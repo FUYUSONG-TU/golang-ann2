@@ -149,6 +149,7 @@ export const api = {
     status: (id, status) => http.post('/qa/status', { id, status }),
     merge: (fromId, toId) => http.post('/qa/merge', { fromId, toId }),
     bulkPublish: () => http.post('/qa/bulk-publish', {}),
+    autoReview: (data) => http.post('/qa/auto-review', data || {}),
     remove: (id) => http.post('/qa/delete', { id }),
     feedback: (id, helpful) => http.post('/qa/feedback', { id, helpful })
   },

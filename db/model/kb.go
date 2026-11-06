@@ -111,6 +111,14 @@ type KbQa struct {
 	Status    string         `gorm:"column:status;size:16;default:candidate;index:idx_qa_status" json:"status"`
 	MergedTo  int64          `gorm:"column:mergedTo;default:0" json:"mergedTo"`
 	Remark    string         `gorm:"column:remark;size:255" json:"remark"`
+
+	// 审核痕迹。自动审核与人工审核写同一组字段，页面才能回答
+	// 「这条是谁定的、凭什么定的」——没有留痕的自动放行等于没有审核。
+	ReviewScore   int        `gorm:"column:reviewScore;default:0" json:"reviewScore"`
+	ReviewVerdict string     `gorm:"column:reviewVerdict;size:16;default:''" json:"reviewVerdict"`
+	ReviewNote    string     `gorm:"column:reviewNote;size:255;default:''" json:"reviewNote"`
+	ReviewedBy    string     `gorm:"column:reviewedBy;size:16;default:''" json:"reviewedBy"`
+	ReviewedAt    *time.Time `gorm:"column:reviewedAt" json:"reviewedAt"`
 	CreatedAt time.Time      `gorm:"column:createdAt" json:"createdAt"`
 	UpdatedAt time.Time      `gorm:"column:updatedAt" json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `gorm:"column:deletedAt;index:idx_qa_deleted" json:"-"`

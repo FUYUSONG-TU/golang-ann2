@@ -48,6 +48,8 @@ var kbRuleKeys = []string{
 	"kbDomainName", "kbDomainScope", "kbDomainInclude", "kbDomainExclude",
 	"kbDomainMinHits", "kbDomainPolicy", "kbCollectEnabled",
 	"kbCollectMinAnswer", "kbCollectDailyQuota",
+	"kbAutoReviewEnabled", "kbAutoReviewScore", "kbAutoReviewMinAnswer",
+	"kbAutoAllowUnsourced", "kbAutoReviewOnCollect",
 }
 
 // kbInjectionWords 提示词注入特征词。
@@ -118,7 +120,10 @@ const kbDefaultScope = "只收走心机（纵切自动车床）、数控车削�
 	"设备结构与调整、刀具与磨损、切削参数、编程指令、装夹与对刀、材料与断屑排屑、" +
 	"质量检测、保养与故障处理。不收录与机加工无关的内容。"
 
-// kbRule 知识域规则
+// kbRule 知识域规则。
+// 前九项管「能不能进库」，后五项管「进库之后谁来定稿」——
+// 两者是同一套准入标准的两段：入口放宽一点还能靠审核兜，
+// 审核也放宽就等于没有门槛。
 type kbRule struct {
 	Name       string   `json:"name"`
 	Scope      string   `json:"scope"`
@@ -129,6 +134,13 @@ type kbRule struct {
 	Collect    bool     `json:"collectEnabled"`
 	MinAnswer  int      `json:"minAnswer"`
 	DailyQuota int      `json:"dailyQuota"`
+
+	// 自动审核
+	AutoReview         bool `json:"autoReview"`         // 是否按规则自动审核候选
+	AutoScore          int  `json:"autoScore"`          // 自动定稿的分数线
+	AutoMinAnswer      int  `json:"autoMinAnswer"`      // 自动定稿要求的最短答案字数
+	AutoAllowUnsourced bool `json:"autoAllowUnsourced"` // 无出处的兜底答案是否也可自动定稿
+	AutoOnCollect      bool `json:"autoOnCollect"`      // 沉淀入库后立即审一次
 }
 
 // kbDefaultRule 出厂规则
@@ -143,6 +155,15 @@ func kbDefaultRule() kbRule {
 		Collect:    true,
 		MinAnswer:  20,
 		DailyQuota: 50,
+
+		// 默认只自动放行「有出处 + 内容扎实」的答案。
+		// 无出处的兜底答案必须人工点一下——机加工场景里，一个编错的切削参数会直接进车间，
+		// 省下的那一次点击不值这个风险。
+		AutoReview:         true,
+		AutoScore:          80,
+		AutoMinAnswer:      60,
+		AutoAllowUnsourced: false,
+		AutoOnCollect:      true,
 	}
 }
 
@@ -185,6 +206,21 @@ func loadKbRule() kbRule {
 	}
 	if v, ok := pick("kbCollectDailyQuota"); ok {
 		rule.DailyQuota = int(clampFloat(parseFloat(v, float64(rule.DailyQuota)), 0, 1000))
+	}
+	if v, ok := pick("kbAutoReviewEnabled"); ok {
+		rule.AutoReview = v != "false"
+	}
+	if v, ok := pick("kbAutoReviewScore"); ok {
+		rule.AutoScore = int(clampFloat(parseFloat(v, float64(rule.AutoScore)), 40, 100))
+	}
+	if v, ok := pick("kbAutoReviewMinAnswer"); ok {
+		rule.AutoMinAnswer = int(clampFloat(parseFloat(v, float64(rule.AutoMinAnswer)), 10, 500))
+	}
+	if v, ok := pick("kbAutoAllowUnsourced"); ok {
+		rule.AutoAllowUnsourced = v == "true"
+	}
+	if v, ok := pick("kbAutoReviewOnCollect"); ok {
+		rule.AutoOnCollect = v != "false"
 	}
 	if len(rule.Include) == 0 {
 		rule.Include = kbDefaultInclude()
@@ -368,6 +404,21 @@ func kbRuleView(c *adminCtx, r *http.Request) (interface{}, error) {
 	fallbackPending, _ := dao.CountKbQaBySourceAndStatus(model.QaSourceFallback, model.QaCandidate)
 	todayCollected, _ := dao.CountKbQaCreatedSince(dayStart(time.Now()))
 
+	// 顺带预判当前待审核里有多少条能被自动放行/驳回，让「自动审核」按钮带数字，
+	// 也让运营改完分数线就能立刻看到影响面。上限 500 条，与批量审核的扫描上限一致。
+	autoPass, autoReject := 0, 0
+	if candidates, _, err := dao.ListKbQa(dao.QaQuery{Status: model.QaCandidate, Page: 1, Size: 500}); err == nil {
+		results := previewBatch(newReviewCtx(rule, true), candidates)
+		for _, result := range results {
+			switch result.Verdict {
+			case reviewPass:
+				autoPass++
+			case reviewReject:
+				autoReject++
+			}
+		}
+	}
+
 	return map[string]interface{}{
 		"rule":      rule,
 		"defaults":  kbDefaultRule(),
@@ -376,9 +427,12 @@ func kbRuleView(c *adminCtx, r *http.Request) (interface{}, error) {
 			"todayCollected":  todayCollected,
 			"pending":         statusCounts[model.QaCandidate],
 			"published":       statusCounts[model.QaPublished],
+			"rejected":        statusCounts[model.QaRejected],
 			"fallbackPending": fallbackPending,
 			"includeCount":    len(rule.Include),
 			"excludeCount":    len(rule.Exclude),
+			"autoPass":        autoPass,
+			"autoReject":      autoReject,
 		},
 	}, nil
 }
@@ -395,6 +449,12 @@ func kbRuleSave(c *adminCtx, r *http.Request) (interface{}, error) {
 		Collect    *bool    `json:"collectEnabled"`
 		MinAnswer  int      `json:"minAnswer"`
 		DailyQuota int      `json:"dailyQuota"`
+
+		AutoReview         *bool `json:"autoReview"`
+		AutoScore          int   `json:"autoScore"`
+		AutoMinAnswer      int   `json:"autoMinAnswer"`
+		AutoAllowUnsourced *bool `json:"autoAllowUnsourced"`
+		AutoOnCollect      *bool `json:"autoOnCollect"`
 	}{}
 	if err := decodeBody(r, &req); err != nil {
 		return nil, err
@@ -434,22 +494,45 @@ func kbRuleSave(c *adminCtx, r *http.Request) (interface{}, error) {
 	if req.DailyQuota < 0 || req.DailyQuota > 1000 {
 		return nil, badRequest("每日入库上限需在 0 - 1000 之间")
 	}
+	if req.AutoScore < 40 || req.AutoScore > 100 {
+		return nil, badRequest("自动定稿分数线需在 40 - 100 之间")
+	}
+	if req.AutoMinAnswer < 10 || req.AutoMinAnswer > 500 {
+		return nil, badRequest("自动定稿最短答案需在 10 - 500 字之间")
+	}
 
 	collect := "true"
 	if req.Collect != nil && !*req.Collect {
 		collect = "false"
 	}
+	autoReview := "true"
+	if req.AutoReview != nil && !*req.AutoReview {
+		autoReview = "false"
+	}
+	allowUnsourced := "false"
+	if req.AutoAllowUnsourced != nil && *req.AutoAllowUnsourced {
+		allowUnsourced = "true"
+	}
+	onCollect := "true"
+	if req.AutoOnCollect != nil && !*req.AutoOnCollect {
+		onCollect = "false"
+	}
 
 	items := map[string]string{
-		"kbDomainName":        name,
-		"kbDomainScope":       scope,
-		"kbDomainInclude":     strings.Join(include, "\n"),
-		"kbDomainExclude":     strings.Join(exclude, "\n"),
-		"kbDomainMinHits":     strconv.Itoa(req.MinHits),
-		"kbDomainPolicy":      policy,
-		"kbCollectEnabled":    collect,
-		"kbCollectMinAnswer":  strconv.Itoa(req.MinAnswer),
-		"kbCollectDailyQuota": strconv.Itoa(req.DailyQuota),
+		"kbDomainName":          name,
+		"kbDomainScope":         scope,
+		"kbDomainInclude":       strings.Join(include, "\n"),
+		"kbDomainExclude":       strings.Join(exclude, "\n"),
+		"kbDomainMinHits":       strconv.Itoa(req.MinHits),
+		"kbDomainPolicy":        policy,
+		"kbCollectEnabled":      collect,
+		"kbCollectMinAnswer":    strconv.Itoa(req.MinAnswer),
+		"kbCollectDailyQuota":   strconv.Itoa(req.DailyQuota),
+		"kbAutoReviewEnabled":   autoReview,
+		"kbAutoReviewScore":     strconv.Itoa(req.AutoScore),
+		"kbAutoReviewMinAnswer": strconv.Itoa(req.AutoMinAnswer),
+		"kbAutoAllowUnsourced":  allowUnsourced,
+		"kbAutoReviewOnCollect": onCollect,
 	}
 	for _, key := range kbRuleKeys {
 		value, ok := items[key]
@@ -514,8 +597,12 @@ func kbRuleTest(c *adminCtx, r *http.Request) (interface{}, error) {
 		next = "会照常作答，但答案不会入库。"
 	case !gate.Allowed:
 		next = "会作答，但这次不满足入库条件：" + gate.Message
+	case !rule.AutoReview:
+		next = "会作答，并沉淀为待审核问答（自动审核已关闭，全部留人工）。"
+	case rule.AutoAllowUnsourced:
+		next = "会作答并沉淀，入库后立刻按规则自动审核：分数达标即定稿，否则留人工。"
 	default:
-		next = "会作答，并沉淀为待审核问答（无出处，需人工核实后才能定稿）。"
+		next = "会作答并沉淀，入库后立刻按规则自动审核；兜底答案没有出处，默认仍留人工确认。"
 	}
 
 	return map[string]interface{}{

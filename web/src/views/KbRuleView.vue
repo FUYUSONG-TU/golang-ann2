@@ -44,7 +44,9 @@
       <div class="jj-stat">
         <div class="jj-stat-label"><el-icon><Clock /></el-icon>待审核</div>
         <div class="jj-stat-value">{{ stats.pending || 0 }}<span class="jj-stat-unit">条</span></div>
-        <div class="jj-stat-foot">其中兜底无出处 {{ stats.fallbackPending || 0 }} 条</div>
+        <div class="jj-stat-foot">
+          {{ stats.autoPass || 0 }} 条可达标 · 兜底无出处 {{ stats.fallbackPending || 0 }} 条
+        </div>
       </div>
       <div class="jj-stat ok">
         <div class="jj-stat-label"><el-icon><Select /></el-icon>已定稿</div>
@@ -170,6 +172,60 @@
             </el-form>
           </div>
         </div>
+
+        <div class="jj-card">
+          <div class="jj-card-head">
+            <div class="jj-card-title">
+              自动审核
+              <span class="jj-card-title-sub">用上面这套规则给候选定稿</span>
+            </div>
+            <div class="jj-card-extra">
+              <span class="word-count">
+                {{ stats.autoPass || 0 }} 条可放行 · {{ stats.autoReject || 0 }} 条会驳回
+              </span>
+            </div>
+          </div>
+          <div class="jj-card-body">
+            <div class="jj-sub" style="margin-bottom: 14px">
+              审核不另立标准：同一份领域词表、同一个最短答案、同一批硬性条件，
+              只是把「这条能不能定稿」从人眼换成可复现、可追溯的规则判定。
+              人只处理规则拿不准的那部分。
+            </div>
+            <el-form label-width="140px" :disabled="!canEdit">
+              <el-form-item label="启用自动审核">
+                <el-switch v-model="form.autoReview" />
+                <span class="jj-sub inline-tip">关闭后所有候选都留在待审核，只能人工逐条确认。</span>
+              </el-form-item>
+              <el-form-item label="定稿分数线">
+                <el-input-number v-model="form.autoScore" :min="40" :max="100" :step="5" />
+                <span class="jj-sub inline-tip">分。达标才自动定稿；调高更保守，调低会把边缘答案放出去。</span>
+              </el-form-item>
+              <el-form-item label="定稿最短答案">
+                <el-input-number v-model="form.autoMinAnswer" :min="10" :max="500" :step="10" />
+                <span class="jj-sub inline-tip">字。低于这个长度，分数再高也留人工——短答案定稿后学员得不到可执行的内容。</span>
+              </el-form-item>
+              <el-form-item label="无出处也可定稿">
+                <el-switch v-model="form.autoAllowUnsourced" />
+                <span class="jj-sub inline-tip">
+                  {{
+                    form.autoAllowUnsourced
+                      ? '兜底答案达标即可自动定稿：省人工，但没有资料可追溯'
+                      : '兜底答案一律留人工（推荐）：无出处的答案只能靠人判断对不对'
+                  }}
+                </span>
+              </el-form-item>
+              <el-form-item label="入库后立即审核">
+                <el-switch v-model="form.autoOnCollect" />
+                <span class="jj-sub inline-tip">沉淀那一刻就判一次，达标的不再堆进「待审核」。</span>
+              </el-form-item>
+            </el-form>
+            <div class="jj-sub field-tip">
+              评分从 55 起：有出处 +18、含具体参数 +8、长度与热度给加成；
+              绝对化表述（「绝对」「百分百」）和差评直接压分，且一律不自动放行。
+              每条记录的分数与依据都会写进问答，审核台可逐条追溯。
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="rule-side">
@@ -249,6 +305,7 @@
               <li><b>问答调试台 / 小程序</b>：检索未命中时先判领域，范围外直接拒答，不调模型。</li>
               <li><b>兜底作答</b>：领域内才作答，答案带「未核实」声明，再过闸门决定是否入库。</li>
               <li><b>沉淀落库</b>：所有自动入库统一在服务端校验，绕过页面也改不了这个行为。</li>
+              <li><b>自动审核</b>：候选按同一套规则打分——达标定稿、明显不合格驳回、其余留人工，结论带分数与依据。</li>
             </ol>
             <div class="jj-sub field-tip">
               人工录入不受准入词限制——运营最清楚该收什么，只有自动沉淀才需要机器守门。
@@ -288,7 +345,12 @@ const form = reactive({
   policy: 'strict',
   collectEnabled: true,
   minAnswer: 20,
-  dailyQuota: 50
+  dailyQuota: 50,
+  autoReview: true,
+  autoScore: 80,
+  autoMinAnswer: 60,
+  autoAllowUnsourced: false,
+  autoOnCollect: true
 })
 
 const splitWords = (text) =>
@@ -317,6 +379,11 @@ function applyRule(rule) {
   form.collectEnabled = rule.collectEnabled !== false
   form.minAnswer = rule.minAnswer ?? 20
   form.dailyQuota = rule.dailyQuota ?? 50
+  form.autoReview = rule.autoReview !== false
+  form.autoScore = rule.autoScore ?? 80
+  form.autoMinAnswer = rule.autoMinAnswer ?? 60
+  form.autoAllowUnsourced = rule.autoAllowUnsourced === true
+  form.autoOnCollect = rule.autoOnCollect !== false
 }
 
 async function load() {
@@ -358,7 +425,12 @@ async function save() {
       policy: form.policy,
       collectEnabled: form.collectEnabled,
       minAnswer: form.minAnswer,
-      dailyQuota: form.dailyQuota
+      dailyQuota: form.dailyQuota,
+      autoReview: form.autoReview,
+      autoScore: form.autoScore,
+      autoMinAnswer: form.autoMinAnswer,
+      autoAllowUnsourced: form.autoAllowUnsourced,
+      autoOnCollect: form.autoOnCollect
     })
     applyRule(data.rule)
     const refreshed = await api.kb.rule()

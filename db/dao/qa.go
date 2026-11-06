@@ -190,6 +190,30 @@ func CountKbQaBySourceAndStatus(source, status string) (int64, error) {
 	return total, err
 }
 
+// ListKbQaPublishedQuestions 已定稿的问题文本。
+// 自动审核用它识别「同一个问题已经有一条定稿答案」，避免重复条目把问答库撑成同义反复。
+// 只取 question 一列：一次审核要扫几百条候选，把答案正文一起拉回来没有必要。
+func ListKbQaPublishedQuestions(limit int) ([]string, error) {
+	rows := make([]struct {
+		Question string `gorm:"column:question"`
+	}, 0)
+	if limit <= 0 || limit > 20000 {
+		limit = 8000
+	}
+	err := db.Get().Model(&model.KbQa{}).
+		Select("question").
+		Where("status = ?", model.QaPublished).
+		Order("id desc").Limit(limit).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Question)
+	}
+	return out, nil
+}
+
 // ListKbQaCategories 已使用的问答分类
 func ListKbQaCategories() ([]string, error) {
 	rows := make([]struct {

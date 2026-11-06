@@ -260,6 +260,29 @@ func collectQaCandidateWithSource(question, answer string, hits []aiHit, source 
 		log.Printf("沉淀问答对失败: %v", err)
 		return 0, collectDecision{Reason: "create_failed", Message: "写入失败：" + err.Error()}
 	}
+
+	// 入库后立刻按规则审一次：能在沉淀这一步定下来的条目，
+	// 就不该再堆到「待审核」里等人点。判定依据与批量审核完全同一套函数。
+	if rule.AutoReview && rule.AutoOnCollect {
+		result := autoReviewAfterCollect(item, rule)
+		switch result.Verdict {
+		case reviewPass:
+			return item.Id, collectDecision{
+				Allowed: true, Reason: collectOK,
+				Message: "已按规则自动定稿（" + strconv.Itoa(result.Score) + " 分）",
+			}
+		case reviewReject:
+			return item.Id, collectDecision{
+				Allowed: true, Reason: collectOK,
+				Message: "已入库但被自动审核驳回，理由见审核台",
+			}
+		default:
+			return item.Id, collectDecision{
+				Allowed: true, Reason: collectOK,
+				Message: "已入候选池，自动审核未放行（" + strconv.Itoa(result.Score) + " 分），待人工复核",
+			}
+		}
+	}
 	return item.Id, collectDecision{Allowed: true, Reason: collectOK, Message: "已入候选池待核实"}
 }
 
@@ -347,6 +370,8 @@ type qaListItem struct {
 	Heat           int     `json:"heat"`
 	SuggestPublish bool    `json:"suggestPublish"`
 	RefList        []aiHit `json:"refList"`
+	// 待审核条目带上一次自动审核的预判，页面不用点按钮就能看到它会怎么被判
+	ReviewPreview *reviewResult `json:"reviewPreview,omitempty"`
 }
 
 func buildQaItem(item model.KbQa) qaListItem {
@@ -380,33 +405,55 @@ func qaList(c *adminCtx, r *http.Request) (interface{}, error) {
 		return nil, serverError("查询问答库失败: " + err.Error())
 	}
 
+	rule := loadKbRule()
+	// 预判用「同一批候选一起算」：批次内重复的条目会在这一步被判出来，
+	// 所以页面上的预判和点「自动审核」后的真实结果一致，不会出现「显示可定稿、点了却被驳回」。
+	reviewMap := map[int64]reviewResult{}
+	suggestCount, autoPassCount, autoRejectCount := 0, 0, 0
+	if candidates, _, err := dao.ListKbQa(dao.QaQuery{Status: model.QaCandidate, Page: 1, Size: 500}); err == nil {
+		reviewMap = previewBatch(newReviewCtx(rule, true), candidates)
+		for _, item := range candidates {
+			if qaSuggestPublish(item) {
+				suggestCount++
+			}
+			switch reviewMap[item.Id].Verdict {
+			case reviewPass:
+				autoPassCount++
+			case reviewReject:
+				autoRejectCount++
+			}
+		}
+	}
+
 	items := make([]qaListItem, 0, len(list))
 	for _, item := range list {
-		items = append(items, buildQaItem(item))
+		view := buildQaItem(item)
+		if item.Status == model.QaCandidate {
+			preview, ok := reviewMap[item.Id]
+			if !ok {
+				preview = previewReview(newReviewCtx(rule, true), item)
+			}
+			view.ReviewPreview = &preview
+		}
+		items = append(items, view)
 	}
 	statusCounts, _ := dao.CountKbQaByStatus()
 	totals, _ := dao.SumKbQaTotals()
 	categories, _ := dao.ListKbQaCategories()
 
-	// 顺带算出有多少条候选已经够格定稿，让「一键定稿」按钮上直接带数字
-	suggestCount := 0
-	if candidates, _, err := dao.ListKbQa(dao.QaQuery{Status: model.QaCandidate, Page: 1, Size: 500}); err == nil {
-		for _, item := range candidates {
-			if qaSuggestPublish(item) {
-				suggestCount++
-			}
-		}
-	}
-
 	return map[string]interface{}{
-		"list":         items,
-		"total":        total,
-		"page":         page,
-		"size":         size,
-		"statusCounts": statusCounts,
-		"totals":       totals,
-		"categories":   categories,
-		"suggestCount": suggestCount,
+		"list":            items,
+		"total":           total,
+		"page":            page,
+		"size":            size,
+		"statusCounts":    statusCounts,
+		"totals":          totals,
+		"categories":      categories,
+		"suggestCount":    suggestCount,
+		"autoReview":      rule.AutoReview,
+		"autoScore":       rule.AutoScore,
+		"autoPassCount":   autoPassCount,
+		"autoRejectCount": autoRejectCount,
 	}, nil
 }
 
@@ -530,8 +577,28 @@ func qaStatus(c *adminCtx, r *http.Request) (interface{}, error) {
 			return nil, badRequest("答案内容太短，定稿后学员会看到，请先补全")
 		}
 	}
-	if err := dao.UpdateKbQaFields(req.Id, map[string]interface{}{"status": req.Status}); err != nil {
+	// 人工改状态时把审核痕迹一并写下来：
+	// 「谁定的」比「定了什么」更重要——出事时要能追到是规则放行的还是人拍板的。
+	now := time.Now()
+	fields := map[string]interface{}{
+		"status":     req.Status,
+		"reviewedBy": "manual",
+		"reviewedAt": now,
+	}
+	switch req.Status {
+	case model.QaPublished:
+		fields["reviewVerdict"] = reviewPass
+		fields["reviewNote"] = "人工审核定稿"
+	case model.QaRejected:
+		fields["reviewVerdict"] = reviewReject
+		fields["reviewNote"] = "人工审核驳回"
+	}
+	if err := dao.UpdateKbQaFields(req.Id, fields); err != nil {
 		return nil, serverError("保存失败: " + err.Error())
+	}
+	// 定稿集合变了，自动审核的查重缓存要跟着失效
+	if item.Status == model.QaPublished || req.Status == model.QaPublished || req.Status == model.QaOffline {
+		invalidatePublishedQa()
 	}
 	return map[string]interface{}{"id": req.Id, "status": req.Status}, nil
 }
@@ -619,6 +686,9 @@ func qaBulkPublish(c *adminCtx, r *http.Request) (interface{}, error) {
 		}
 		published++
 	}
+	if published > 0 {
+		invalidatePublishedQa()
+	}
 	return map[string]interface{}{"published": published, "scanned": len(list)}, nil
 }
 
@@ -639,6 +709,7 @@ func qaDelete(c *adminCtx, r *http.Request) (interface{}, error) {
 	if err := dao.DeleteKbQa(req.Id); err != nil {
 		return nil, serverError("删除失败: " + err.Error())
 	}
+	invalidatePublishedQa()
 	return map[string]interface{}{"id": req.Id}, nil
 }
 

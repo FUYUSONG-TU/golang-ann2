@@ -124,6 +124,7 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/qa/status", "qa", "qa", "变更问答对状态", qaStatus},
 	{http.MethodPost, "/qa/merge", "qa", "qa", "合并重复问答", qaMerge},
 	{http.MethodPost, "/qa/bulk-publish", "qa", "qa", "批量定稿问答", qaBulkPublish},
+	{http.MethodPost, "/qa/auto-review", "qa", "qa", "自动审核问答", qaAutoReview},
 	{http.MethodPost, "/qa/delete", "qa", "qa", "删除问答对", qaDelete},
 	{http.MethodPost, "/qa/feedback", "ai", "ai", "记录问答反馈", qaFeedback},
 

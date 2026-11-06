@@ -13,7 +13,15 @@
           <el-icon><Plus /></el-icon>手工录入
         </el-button>
         <el-button
-          :type="suggestCount ? 'primary' : 'default'"
+          :type="autoPassCount ? 'primary' : 'default'"
+          :disabled="!canManage || !autoReviewOn || !statusCounts.candidate"
+          :loading="autoReviewing"
+          @click="runAutoReview"
+        >
+          <el-icon><MagicStick /></el-icon>
+          {{ autoReviewOn ? '自动审核 ' + (statusCounts.candidate || 0) + ' 条待审' : '自动审核已关闭' }}
+        </el-button>
+        <el-button
           :disabled="!canManage || !suggestCount"
           @click="bulkPublish"
         >
@@ -27,7 +35,9 @@
       <div class="jj-stat warn">
         <div class="jj-stat-label">待审核</div>
         <div class="jj-stat-value">{{ statusCounts.candidate || 0 }}</div>
-        <div class="jj-stat-foot">{{ suggestCount }} 条已够格定稿</div>
+        <div class="jj-stat-foot">
+          {{ autoPassCount ? autoPassCount + ' 条自动审核可达标' : '等待新提问沉淀' }}
+        </div>
       </div>
       <div class="jj-stat ok">
         <div class="jj-stat-label">已定稿</div>
@@ -91,6 +101,17 @@
         <div v-for="item in list" :key="item.id" class="qa-item">
           <div class="qa-top">
             <span class="tag" :class="'st-' + item.status">{{ item.statusText }}</span>
+            <span
+              v-if="item.status === 'candidate' && item.reviewPreview"
+              class="tag"
+              :class="'rv-' + item.reviewPreview.verdict"
+              :title="item.reviewPreview.note"
+            >
+              规则评分 {{ item.reviewPreview.score }} · {{ verdictLabel(item.reviewPreview.verdict) }}
+            </span>
+            <span v-if="item.status === 'published' && item.reviewedBy === 'auto'" class="tag tag-auto" title="按知识规则自动定稿，未经过人工">
+              规则定稿
+            </span>
             <span v-if="item.suggestPublish" class="tag tag-suggest">建议定稿</span>
             <span class="tag tag-ghost">{{ item.sourceText }}</span>
             <span v-if="item.category" class="tag tag-ghost">{{ item.category }}</span>
@@ -125,6 +146,11 @@
           <div v-else-if="item.status === 'candidate'" class="qa-refs warn">
             <span class="alias-label">出处</span>
             <span class="ref-none">这条没有引用来源，定稿前请先核对，模型可能是凭常识答的</span>
+          </div>
+
+          <div v-if="item.reviewNote && item.status !== 'candidate'" class="qa-review" :class="item.reviewVerdict">
+            <span class="alias-label">{{ item.reviewedBy === 'auto' ? '规则审核' : '人工审核' }}</span>
+            <span class="review-text">{{ item.reviewNote }}</span>
           </div>
 
           <div class="qa-bottom">
@@ -244,7 +270,7 @@
 <script setup>
 import { inject, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, CircleCheck, Plus, Search } from '@element-plus/icons-vue'
+import { ArrowDown, CircleCheck, MagicStick, Plus, Search } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { canWrite } from '../store/auth'
 
@@ -259,6 +285,9 @@ const size = 10
 const statusCounts = ref({})
 const totals = ref({})
 const suggestCount = ref(0)
+const autoReviewOn = ref(true)
+const autoPassCount = ref(0)
+const autoReviewing = ref(false)
 const categories = ref([])
 const expanded = reactive({})
 
@@ -317,6 +346,8 @@ async function load() {
     statusCounts.value = data.statusCounts || {}
     totals.value = data.totals || {}
     suggestCount.value = data.suggestCount || 0
+    autoReviewOn.value = data.autoReview !== false
+    autoPassCount.value = data.autoPassCount || 0
     categories.value = data.categories || []
   } catch (e) {
     ElMessage.error(e.message)
@@ -486,6 +517,36 @@ async function bulkPublish() {
   }
 }
 
+const verdictLabel = (v) => ({ pass: '可自动定稿', hold: '需人工', reject: '会驳回' })[v] || '待判定'
+
+// 自动审核：把整批待审核交给规则层判一次。
+// 前端只负责展示结果，判什么、怎么判全在服务端——页面上的分数和结论是同一套规则算出来的。
+async function runAutoReview() {
+  const pending = statusCounts.value.candidate || 0
+  try {
+    await ElMessageBox.confirm(
+      `将按「知识规则」审核 ${pending} 条待审问答：分数达标的自动定稿，明显不合格的自动驳回，拿不准的继续留在这里。` +
+        `\n\n所有结论都带评分依据，可在每条记录上看到。`,
+      '自动审核',
+      { confirmButtonText: '开始审核', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
+  autoReviewing.value = true
+  try {
+    const data = await api.qa.autoReview({ limit: 500 })
+    const parts = [`扫描 ${data.scanned} 条`, `定稿 ${data.passed} 条`, `驳回 ${data.rejected} 条`]
+    if (data.held) parts.push(`留人工 ${data.held} 条`)
+    ElMessage.success(parts.join(' · '))
+    load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    autoReviewing.value = false
+  }
+}
+
 watch(reloadTick, load)
 onMounted(load)
 </script>
@@ -636,6 +697,55 @@ onMounted(load)
   color: var(--jj-text-sub);
   background: rgba(148, 163, 184, 0.12);
   font-weight: 400;
+}
+
+/* 自动审核预判：绿=可放行，琥珀=要人看，红=会被驳回。
+   同一套配色和「待审核/已定稿」保持区分——这是审核建议，不是最终状态。 */
+.rv-pass {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.22);
+}
+
+.rv-hold {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+.rv-reject {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+.tag-auto {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  font-weight: 400;
+}
+
+.qa-review {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 12.5px;
+  color: var(--jj-text-sub);
+  line-height: 1.6;
+}
+
+.qa-review.reject {
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
+}
+
+.review-text {
+  flex: 1;
 }
 
 .heat {
