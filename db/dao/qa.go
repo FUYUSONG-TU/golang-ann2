@@ -168,6 +168,28 @@ func SumKbQaTotals() (QaTotals, error) {
 	return row, err
 }
 
+// CountKbQaCreatedSince 统计某时间点之后新建的问答对数量，用于每日自动入库配额。
+// 按 createdAt 而不是 id 计数：软删除的记录会留下空洞，用 id 会算错。
+func CountKbQaCreatedSince(since time.Time) (int64, error) {
+	var total int64
+	err := db.Get().Model(&model.KbQa{}).Where("createdAt >= ?", since).Count(&total).Error
+	return total, err
+}
+
+// CountKbQaBySourceAndStatus 按来源与状态统计，用于区分「兜底入库」这类需要重点复核的条目
+func CountKbQaBySourceAndStatus(source, status string) (int64, error) {
+	var total int64
+	query := db.Get().Model(&model.KbQa{})
+	if source != "" {
+		query = query.Where("source = ?", source)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Count(&total).Error
+	return total, err
+}
+
 // ListKbQaCategories 已使用的问答分类
 func ListKbQaCategories() ([]string, error) {
 	rows := make([]struct {

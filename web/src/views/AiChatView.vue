@@ -78,7 +78,11 @@
                 </template>
                 <template v-else-if="msg.source === 'model'">模型生成 · 已沉淀为待审核问答</template>
                 <template v-else-if="msg.source === 'model_fallback'">
-                  资料未命中 · AI 通用知识作答 · 已入候选池待核实
+                  资料未命中 · AI 通用知识作答 ·
+                  {{ msg.collect && msg.collect.allowed === false ? '未入库（' + collectText(msg.collect) + '）' : '已入候选池待核实' }}
+                </template>
+                <template v-else-if="msg.source === 'out_of_domain'">
+                  {{ msg.reason === 'injection' ? '越权请求 · 已拦截' : '范围外问题 · 未作答未入库' }}
                 </template>
               </div>
               <div class="bubble" :class="{ error: msg.error }">
@@ -101,6 +105,10 @@
 
               <div v-if="msg.source === 'model_fallback' && !msg.pending" class="msg-action fallback-action">
                 <el-button link type="warning" @click="$router.push('/qa')">去问答沉淀核实这条答案</el-button>
+              </div>
+
+              <div v-if="msg.source === 'out_of_domain' && canWriteKb && !msg.pending" class="msg-action">
+                <el-button link type="primary" @click="$router.push('/kb/rule')">去知识规则调整收录范围</el-button>
               </div>
 
               <div v-if="msg.qaId && !msg.error && !msg.pending" class="feedback">
@@ -246,6 +254,21 @@ import { canWrite } from '../store/auth'
 const reloadTick = inject('jjReloadTick', ref(0))
 // 必须用 computed：刷新页面时权限是异步加载的，setup 阶段读一次会永久拿到空权限
 const canChat = computed(() => canWrite('ai'))
+const canWriteKb = computed(() => canWrite('kb'))
+
+// 沉淀闸门结论的中文说明。没入库时要能一眼看出原因，
+// 否则运营只会觉得「怎么有时候入库有时候不入库」。
+function collectText(collect) {
+  const map = {
+    out_of_domain: '范围外',
+    answer_too_short: '答案太短',
+    answer_is_refusal: '模型未实际作答',
+    quota_exceeded: '超今日上限',
+    collect_disabled: '自动入库已关闭',
+    create_failed: '写入失败'
+  }
+  return map[collect?.reason] || collect?.reason || '未通过闸门'
+}
 
 const loading = ref(false)
 const sending = ref(false)
@@ -641,6 +664,13 @@ onMounted(load)
   color: #b45309;
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+/* 范围外问题既没作答也没入库，用中性色：这不是错误，只是不在职责内 */
+.src-badge.out_of_domain {
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.08);
+  border: 1px solid rgba(100, 116, 139, 0.2);
 }
 
 .fallback-action {

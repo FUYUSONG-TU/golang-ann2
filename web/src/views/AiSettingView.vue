@@ -171,6 +171,11 @@
                   开启后不会再出现「没找到」的死胡同：答案带【未引用资料】声明返回，同时自动进「问答沉淀」候选池，
                   人工核实定稿后才成为可直接命中的标准答案。这是知识库从零积累内容的主要入口。
                 </div>
+                <div class="jj-sub field-tip">
+                  兜底受「
+                  <el-link type="primary" :underline="false" @click="$router.push('/kb/rule')">知识规则</el-link>
+                  」约束：范围外的问题不调模型、不入库；答案太短或像拒答也不会入库。
+                </div>
               </el-form-item>
               <el-form-item v-if="form.fallbackEnabled" label="兜底提示词">
                 <el-input

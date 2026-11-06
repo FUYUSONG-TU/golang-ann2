@@ -194,29 +194,41 @@ func findSimilarQa(terms []string) (int64, float64, model.KbQa) {
 // ---------- 沉淀 ----------
 
 // collectQaCandidate 把一次「依据资料作答」的提问沉淀成问答对。
-// 已经有相似问题就把新问法并进别名、提问次数 +1，不会再造一条重复记录；
-// 否则新建一条待审核。任何失败都只记日志，不影响本次回答。
-func collectQaCandidate(question, answer string, hits []aiHit) int64 {
+func collectQaCandidate(question, answer string, hits []aiHit) (int64, collectDecision) {
 	return collectQaCandidateWithSource(question, answer, hits, model.QaSourceAi)
 }
 
 // collectQaCandidateWithSource 沉淀问答对，并记录答案的来源。
 // 来源决定审核台的展示与「一键定稿」是否放行：无出处的兜底答案必须人工确认。
-func collectQaCandidateWithSource(question, answer string, hits []aiHit, source string) int64 {
+//
+// 沉淀闸门设在这里而不是各个调用点：这是所有自动入库的必经之路，
+// 放上游意味着以后新增一条入库路径就可能绕开规则，而规则一旦能被绕开就等于不存在。
+func collectQaCandidateWithSource(question, answer string, hits []aiHit, source string) (int64, collectDecision) {
 	question = strings.TrimSpace(question)
 	answer = strings.TrimSpace(answer)
 	if question == "" || answer == "" {
-		return 0
+		return 0, collectDecision{Reason: collectTooShort, Message: "问题或答案为空"}
 	}
 	terms := aiQueryTerms(question)
 	if len(terms) == 0 {
-		return 0
+		return 0, collectDecision{Reason: collectTooShort, Message: "问题里没有可用于检索的关键词"}
 	}
 
+	// 先去重再看闸门：重复提问只是给已有条目计数，不新增数据，
+	// 不该被「每日新增配额」误挡。
 	if id, score, existed := findSimilarQa(terms); id > 0 && score >= qaDupThreshold {
 		_ = dao.IncrKbQaCounter(id, "askCount", 1)
 		appendQaAlias(existed, question)
-		return id
+		return id, collectDecision{
+			Allowed: true, Reason: collectOK,
+			Message: "已并入已有问答对 #" + strconv.FormatInt(id, 10) + "，提问次数 +1",
+		}
+	}
+
+	rule := loadKbRule()
+	if decision := rule.gate(question, answer, source); !decision.Allowed {
+		log.Printf("问答未入库（%s）：%s | %s", decision.Reason, decision.Message, truncate(question, 60))
+		return 0, decision
 	}
 
 	category := ""
@@ -246,9 +258,9 @@ func collectQaCandidateWithSource(question, answer string, hits []aiHit, source 
 	}
 	if err := dao.CreateKbQa(item); err != nil {
 		log.Printf("沉淀问答对失败: %v", err)
-		return 0
+		return 0, collectDecision{Reason: "create_failed", Message: "写入失败：" + err.Error()}
 	}
-	return item.Id
+	return item.Id, collectDecision{Allowed: true, Reason: collectOK, Message: "已入候选池待核实"}
 }
 
 // appendQaAlias 把一个新问法并进已有问答对的别名表。

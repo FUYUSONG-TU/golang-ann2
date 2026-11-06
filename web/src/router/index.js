@@ -56,6 +56,12 @@ const routes = [
         meta: { title: 'AI 资料管理', module: 'kb' }
       },
       {
+        path: 'kb/rule',
+        name: 'kb-rule',
+        component: () => import('../views/KbRuleView.vue'),
+        meta: { title: '知识规则', module: 'kb' }
+      },
+      {
         path: 'qa',
         name: 'qa',
         component: () => import('../views/QaView.vue'),

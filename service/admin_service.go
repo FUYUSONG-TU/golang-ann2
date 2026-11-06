@@ -106,6 +106,11 @@ var adminRoutes = []apiRoute{
 	{http.MethodPost, "/kb/status", "kb", "kb", "变更资料状态", kbStatus},
 	{http.MethodPost, "/kb/delete", "kb", "kb", "删除知识库资料", kbDelete},
 
+	// 知识规则：什么问题能答、什么答案能进库（领域准入 + 沉淀闸门）
+	{http.MethodGet, "/kb/rule", "kb:view", "", "", kbRuleView},
+	{http.MethodPost, "/kb/rule/save", "kb", "kb", "保存知识规则", kbRuleSave},
+	{http.MethodPost, "/kb/rule/test", "kb:view", "", "", kbRuleTest},
+
 	// AI 助手：模型配置、连通性测试、检索与问答调试
 	{http.MethodGet, "/ai/configs", "ai:view", "", "", aiConfigView},
 	{http.MethodPost, "/ai/configs/save", "ai", "ai", "保存 AI 配置", aiConfigSave},

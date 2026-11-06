@@ -800,15 +800,25 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	if len(hits) == 0 {
 		docs, _ := dao.CountSearchableDocs()
 		chunks, _ := dao.CountKbChunks()
+
+		// 领域准入放在这里：检索之后、调模型之前。
+		// 检索命中过的内容天然是领域内资料，不需要再判；没命中的问题必须先过闸，
+		// 否则「今天天气怎么样」也会被模型认真答一遍并写进候选池。
+		rule := loadKbRule()
+		verdict := rule.judge(req.Question)
+		if !verdict.In && rule.Policy == kbPolicyStrict {
+			return aiOutOfDomainAnswer(rule, verdict, docs, chunks), nil
+		}
+
 		if modelReady && cfg.Fallback {
-			return aiFallbackAnswer(cfg, req.Question, candidates, docs, chunks)
+			return aiFallbackAnswer(cfg, rule, req.Question, candidates, docs, chunks)
 		}
 		// 兜底关闭或模型不可用，才能退回说明原因的话术
 		answer, reason := aiNoHitAnswer(req.Question, docs, chunks, modelReady)
 		return map[string]interface{}{
 			"answer": answer, "model": "", "source": "none", "reason": reason,
 			"hitCount": 0, "candidates": candidates, "references": []aiHit{},
-			"usage": nil, "latencyMs": 0, "grounded": false,
+			"usage": nil, "latencyMs": 0, "grounded": false, "domain": verdict,
 			"kbDocs": docs, "kbChunks": chunks,
 		}, nil
 	}
@@ -847,7 +857,7 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 	// 答完立刻沉淀成候选问答对。有出处的答案才有资格进池子，
 	// 进池后还要人工确认一次才会参与「直接命中」，避免错答案被反复引用。
 	// 沉淀失败不影响本次回答，只记日志。
-	qaId := collectQaCandidate(req.Question, answer, hits)
+	qaId, decision := collectQaCandidate(req.Question, answer, hits)
 
 	return map[string]interface{}{
 		"answer":     answer,
@@ -860,6 +870,7 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 		"usage":      result.Usage,
 		"latencyMs":  latency,
 		"grounded":   true,
+		"collect":    decision,
 	}, nil
 }
 
@@ -867,7 +878,8 @@ func aiChatHandler(c *adminCtx, r *http.Request) (interface{}, error) {
 // 与主链路只有两点不同：不给模型资料上下文，答案前强制加「未核实」声明。
 // 沉淀时来源记 ai_fallback 且 refs 为空——审核台的「一键定稿」只认有出处的条目，
 // 所以这类答案必须人工逐条确认才会进入直接命中，不会被模型的自说自话污染。
-func aiFallbackAnswer(cfg aiConfig, question string, candidates int, docs, chunks int64) (interface{}, error) {
+// 此外还要过一道沉淀闸门：领域外、太短、像拒答、超出当日配额的答案一律不入库。
+func aiFallbackAnswer(cfg aiConfig, rule kbRule, question string, candidates int, docs, chunks int64) (interface{}, error) {
 	// 同一个问题可能已经被兜底答过一次，候选池里直接复用，省一次模型调用。
 	if id, score, existed := findSimilarQa(aiQueryTerms(question)); id > 0 && score >= qaDupThreshold &&
 		existed.Status == model.QaCandidate && len(parseQaRefs(existed.Refs)) == 0 {
@@ -882,8 +894,15 @@ func aiFallbackAnswer(cfg aiConfig, question string, candidates int, docs, chunk
 		}, nil
 	}
 
+	// 把领域范围写进指令：即便准入判定放行了，也要让模型知道自己的职责边界，
+	// 避免它借着「通用知识」顺着问题往外滑。
+	systemPrompt := cfg.FallbackPrompt
+	if scope := strings.TrimSpace(rule.Scope); scope != "" {
+		systemPrompt += "\n\n本知识库的收录范围（超出范围的内容直接说明不负责，不要展开）：\n" + scope
+	}
+
 	messages := []aiMessage{
-		{Role: "system", Content: cfg.FallbackPrompt},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: question},
 	}
 	result, latency, err := aiChatCompletion(cfg, messages, cfg.MaxTokens, cfg.Temperature)
@@ -910,15 +929,39 @@ func aiFallbackAnswer(cfg aiConfig, question string, candidates int, docs, chunk
 	}
 	// 入库只存答案本体：未核实声明是这次回答的属性，不是知识本身。
 	// 人工核实定稿后，学员看到的就是干净的答案。
-	qaId := collectQaCandidateWithSource(question, answer, nil, model.QaSourceFallback)
+	// 入不入库由闸门决定，闸门理由原样返回，方便在调试台看清「这次为什么没沉淀」。
+	qaId, decision := collectQaCandidateWithSource(question, answer, nil, model.QaSourceFallback)
 
 	return map[string]interface{}{
 		"answer": aiFallbackBanner + answer, "model": result.Model,
 		"source": model.QaSourceFallback, "reason": "fallback", "qaId": qaId,
 		"hitCount": 0, "candidates": candidates, "references": []aiHit{},
 		"usage": result.Usage, "latencyMs": latency, "grounded": false, "verified": false,
-		"kbDocs": docs, "kbChunks": chunks,
+		"collect": decision, "kbDocs": docs, "kbChunks": chunks,
 	}, nil
+}
+
+// aiOutOfDomainAnswer 领域外问题的固定回复。
+// 关键点是「什么都不做」：不调模型（省钱，也不给它跑偏的机会）、不写库（不污染知识库），
+// 只把范围和原因说清楚。含糊其辞地答一半，比明确拒绝更糟。
+func aiOutOfDomainAnswer(rule kbRule, verdict domainVerdict, docs, chunks int64) map[string]interface{} {
+	var buf strings.Builder
+	buf.WriteString("这个问题不在本知识库的收录范围内，我没有作答，也没有把它写进知识库。\n\n")
+	buf.WriteString("我只负责「" + rule.Name + "」相关的问题——")
+	buf.WriteString("设备结构与调整、刀具与磨损、切削参数、编程指令、装夹对刀、断屑排屑、质量检测、保养与故障处理。\n\n")
+	if verdict.Reason == domainInjection {
+		buf.WriteString("另外，试图改写助手指令的请求不会被处理。\n\n")
+	} else if len(verdict.Blocked) > 0 {
+		buf.WriteString("本次提问命中了范围外词汇：" + strings.Join(verdict.Blocked, "、") + "。\n\n")
+	}
+	buf.WriteString("如果是机加工相关的问题，换成具体的工序或现象再问一次，比如「不锈钢外圆车削振刀怎么调」。")
+
+	return map[string]interface{}{
+		"answer": buf.String(), "model": "", "source": "out_of_domain", "reason": verdict.Reason,
+		"domain": verdict, "hitCount": 0, "candidates": 0, "references": []aiHit{},
+		"usage": nil, "latencyMs": 0, "grounded": false, "verified": false,
+		"kbDocs": docs, "kbChunks": chunks,
+	}
 }
 
 // buildAiContext 把命中块拼成带编号的参考资料，编号与前端引用一致

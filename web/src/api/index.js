@@ -135,7 +135,11 @@ export const api = {
     save: (data) => http.post('/kb/save', data),
     parse: (id) => http.post('/kb/parse', { id }),
     status: (id, status) => http.post('/kb/status', { id, status }),
-    remove: (id) => http.post('/kb/delete', { id })
+    remove: (id) => http.post('/kb/delete', { id }),
+    // 知识规则：领域准入与沉淀闸门
+    rule: () => http.get('/kb/rule'),
+    saveRule: (data) => http.post('/kb/rule/save', data),
+    testRule: (question) => http.post('/kb/rule/test', { question })
   },
 
   // 问答沉淀：学员真实提问累积成的标准答案
